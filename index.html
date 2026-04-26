@@ -1055,6 +1055,61 @@ const COMPANY_DB = [
   },
 ];
 
+// ---- NZT industry → news template mapping --------------------
+const NZT_NEWS_MAP = {
+  'Manufacturing':                'Industrials & Manufacturing',
+  'Materials':                    'Industrials & Manufacturing',
+  'Infrastructure':               'Industrials & Manufacturing',
+  'Fossil Fuels':                 'Energy & Utilities',
+  'Power generation':             'Energy & Utilities',
+  'Retail':                       'Retail',
+  'Hospitality':                  'Retail',
+  'Apparel':                      'Retail',
+  'Transportation services':      'Transportation & Aviation',
+  'Food, beverage & agriculture': 'Food & Beverage',
+  'Biotech, health care & pharma':'Healthcare',
+  'Services':                     'Financial Services',
+};
+
+// ---- Find industry peers from NZT DB -------------------------
+function findNZTPeers(nztEntry, n) {
+  n = n || 5;
+  if (!nztEntry || !nztEntry.i) return [];
+  const parseRev = r => {
+    if (!r) return 0;
+    const num = parseFloat(r.replace(/[^0-9.]/g,'')) || 0;
+    return r.includes('B') ? num * 1e9 : r.includes('M') ? num * 1e6 : num;
+  };
+  const myRev = parseRev(nztEntry.r);
+  const IND_MIX = {
+    'Manufacturing':            {sp:10,nbs:40,cdr:50}, 'Materials':               {sp:8, nbs:42,cdr:50},
+    'Transportation services':  {sp:20,nbs:35,cdr:45}, 'Fossil Fuels':            {sp:15,nbs:35,cdr:50},
+    'Food, beverage & agriculture':{sp:5,nbs:60,cdr:35},'Retail':                 {sp:10,nbs:50,cdr:40},
+    'Services':                 {sp:15,nbs:40,cdr:45}, 'Power generation':        {sp:10,nbs:30,cdr:60},
+    'Infrastructure':           {sp:10,nbs:45,cdr:45}, 'Biotech, health care & pharma':{sp:8,nbs:45,cdr:47},
+  };
+  const mix = IND_MIX[nztEntry.i] || {sp:15,nbs:40,cdr:45};
+  return NZT_DB
+    .filter(e => e.i === nztEntry.i && e.n !== nztEntry.n && e.ty)
+    .map(e => ({ ...e, _diff: Math.abs(parseRev(e.r) - myRev) }))
+    .sort((a,b) => a._diff - b._diff)
+    .slice(0, n)
+    .map(e => ({
+      name: e.n,
+      abbr: e.n.length > 22 ? e.n.split(' ').slice(0,2).join(' ') : e.n,
+      target: e.ty || 2050,
+      status: e.ts === 'Achieved (externally validated)' ? 'Verified' : e.ts === 'Achieved (self-declared)' ? 'Achieved' : e.ts === 'In corporate strategy' ? 'Strategy' : 'Pledge',
+      statusColor: e.ts === 'Achieved (externally validated)' ? '#7ECEAD' : e.ts === 'In corporate strategy' ? '#B2F6BD' : '#FFEAB2',
+      spend: e.r ? `~${e.r}` : '—',
+      spendNote: e.r ? 'rev.' : '',
+      mix,
+      certifications: [e.rz ? 'Race to Zero' : null, 'CDP Signatory'].filter(Boolean),
+      approach: `${e.n} (${e.c || 'Global'}) has set a net-zero target of ${e.ty}${e.iy ? `, with a ${e.iy} interim milestone` : ''}. ${e.e ? `Workforce: ${e.e.toLocaleString()} employees. ` : ''}Revenue: ${e.r || 'not disclosed'}. Commitment level: ${e.ts || 'stated'}.`,
+      gap: `${e.n} targets ${e.ty || 2050} — ${e.ty && prefs && e.ty < prefs.targetYear ? `ahead of your ${prefs.targetYear} target` : `at parity or later`}. Carbon credit purchasing strategy not publicly disclosed; estimates based on sector benchmarks.`,
+      _fromNZT: true,
+    }));
+}
+
 // ---- Company matching ----------------------------------------
 function matchCompany(name) {
   if (!name) return null;
@@ -1109,7 +1164,7 @@ function enrichPrefs(prefs) {
     if (!co && sbti.country && !enriched.hq) enriched.hq = sbti.country;
   }
 
-  // Overlay Net Zero Tracker data (industry, revenue, employees, target year, country)
+  // Overlay Net Zero Tracker data (industry, revenue, employees, target year, country, peers)
   if (!co) {
     const nzt = matchNZT(enriched.orgName || prefs.orgName || '');
     if (nzt) {
@@ -1118,9 +1173,28 @@ function enrichPrefs(prefs) {
       if (nzt.e && !enriched.employees) enriched.employees = nzt.e;
       if (nzt.r && !enriched.revenue) enriched.revenue = nzt.r;
       if (nzt.c && !enriched.hq) enriched.hq = nzt.c;
-      // Use NZT target year only if SBTi didn't already set one
       if (nzt.ty && !sbti && enriched.targetYear === 2040) enriched.targetYear = nzt.ty;
+      // Build peer list from same industry in NZT DB
+      if (!enriched.peers || !enriched.peers.length) {
+        const nztPeers = findNZTPeers(nzt, 5);
+        enriched._nztPeers = nztPeers;
+        enriched.peers = nztPeers.map(p => p.name);
+      }
+      // Map NZT industry to news template key
+      if (!enriched._newsIndustry) enriched._newsIndustry = NZT_NEWS_MAP[nzt.i] || nzt.i;
     }
+  }
+
+  // Also map SBTi sector to news industry if NZT didn't already do it
+  if (!co && !enriched._newsIndustry && sbti && sbti.sector) {
+    const sbtiMap = {
+      'Software and Services': 'Technology', 'Capital Goods': 'Industrials & Manufacturing',
+      'Transportation': 'Transportation & Aviation', 'Food and Beverage Processing': 'Food & Beverage',
+      'Banks, Diverse Financials, Insurance': 'Financial Services',
+      'Biotech, Pharmaceuticals': 'Healthcare', 'Telecommunication Services': 'Telecommunications',
+      'Electric Utilities': 'Energy & Utilities', 'Oil, Gas and Consumable Fuels': 'Energy & Utilities',
+    };
+    enriched._newsIndustry = sbtiMap[sbti.sector] || sbti.sector;
   }
 
   return enriched;
@@ -1664,6 +1738,74 @@ NEWS_TEMPLATES['Industrials & Manufacturing'] = [
     impact:'high', tags:['Hard-to-abate','CDR','Strategy'] },
 ];
 
+NEWS_TEMPLATES['Transportation & Aviation'] = [
+  { kind:'policy',  source:'ICAO', title:'CORSIA Phase 2 offsetting requirements tighten for international aviation',
+    body:'CORSIA Phase 2 (2027–2035) raises the offsetting bar — airlines must source credits meeting ICAO\'s Carbon Offsetting and Reduction Scheme criteria. Durable CDR credits now eligible, creating a direct procurement pathway for airlines with net-zero ambitions.',
+    impact:'high', tags:['CORSIA','Aviation','Compliance'] },
+  { kind:'market',  source:'BloombergNEF', title:'Sustainable aviation fuel supply still covers less than 1% of jet demand',
+    body:'Global SAF production reached 1.2 billion litres in 2025 — less than 0.5% of total jet fuel demand. Airlines reliant on SAF blending mandates face supply constraints and a blending cost premium of $4–7/GJ vs conventional fuel. Carbon removal bridges the residual gap.',
+    impact:'high', tags:['SAF','Aviation','Supply'] },
+  { kind:'insight', source:'CUR8 Research', title:'Aviation\'s residual emissions problem: why CDR is unavoidable',
+    body:'Aviation Scope 1 residual emissions — the 10–30% that cannot be abated via SAF or electrification by 2050 — will require durable CDR at scale. For a network carrier, this implies a multi-decade CDR procurement strategy starting now to lock in pre-scale pricing.',
+    impact:'high', tags:['Aviation','CDR','Residuals'] },
+  { kind:'policy',  source:'European Commission', title:'EU ETS expansion to maritime and aviation accelerates carbon cost',
+    body:'Full phase-in of aviation into EU ETS by 2026 removes all free allowances. Carriers on intra-EU routes face €70–120/t on uncovered emissions. Non-EU carriers serving EU hubs face equivalent obligations under the Carbon Border mechanism.',
+    impact:'high', tags:['EU ETS','Aviation','Carbon price'] },
+  { kind:'market',  source:'Rocky Mountain Institute', title:'Cargo decarbonisation driving early CDR demand from logistics leaders',
+    body:'DHL, Maersk and Kuehne+Nagel have each pre-purchased CDR for freight customers — demonstrating Scope 3 pass-through pricing at $18–35/shipment. Airlines with cargo operations are next: mixed freight gives a lower-cost entry point for removal accounting.',
+    impact:'med', tags:['Logistics','CDR','Scope 3'] },
+];
+
+NEWS_TEMPLATES['Food & Beverage'] = [
+  { kind:'policy',  source:'EU Commission', title:'EU Deforestation Regulation deadline enforcement confirmed for large companies',
+    body:'EUDR enforcement for large food and beverage companies confirmed from January 2025 with fines up to 4% of EU turnover. Soy, palm oil, cattle, coffee, cocoa and wood supply chains require geolocation data and third-party auditing.',
+    impact:'high', tags:['EUDR','Deforestation','Compliance'] },
+  { kind:'insight', source:'CUR8 Research', title:'Scope 3 agriculture emissions: which categories are hardest to abate',
+    body:'For most food companies, Category 1 (purchased goods) represents 60–80% of Scope 3. Soil carbon credits from supplier farms offer both abatement and a supply chain engagement mechanism — but additionality verification remains the key due diligence question.',
+    impact:'high', tags:['Scope 3','Agriculture','Soil carbon'] },
+  { kind:'market',  source:'VCMI', title:'FMCG firms lead VCMI Claims Code adoption for 2026 reporting cycle',
+    body:'Unilever, Danone and Nestlé anchored VCMI\'s Gold Claims cohort in 2025. High-quality NBS and biochar blends dominate portfolios. CDR allocation is rising: sector average moved from 8% to 22% between 2023 and 2025.',
+    impact:'med', tags:['VCMI','FMCG','CDR'] },
+  { kind:'policy',  source:'SBTi', title:'SBTi FLAG guidance tightens land-sector accounting for food companies',
+    body:'Revised FLAG (Forest, Land and Agriculture) guidance requires food companies to account for land-use change emissions in supplier geographies. Removals from soil and forest must be separately ring-fenced from emissions reduction targets.',
+    impact:'high', tags:['SBTi','FLAG','Land use'] },
+];
+
+NEWS_TEMPLATES['Healthcare'] = [
+  { kind:'policy',  source:'NHS England', title:'NHS supply chain decarbonisation mandate extends to pharmaceutical partners',
+    body:'NHS Net Zero Supplier Roadmap now requires all Tier 1 suppliers — including pharma and medtech — to submit verified Scope 1 and 2 targets by 2025 and full Scope 3 pathways by 2027. Non-compliance risks procurement exclusion.',
+    impact:'high', tags:['NHS','Healthcare','Supply chain'] },
+  { kind:'insight', source:'CUR8 Research', title:'Anaesthetic gases: the hidden high-GWP source in healthcare Scope 1',
+    body:'Desflurane and nitrous oxide account for up to 60% of operating theatre Scope 1 in major hospital systems. Switching protocols can reduce clinical emissions by 40% — the residual requires ODS destruction or other SP-category credits.',
+    impact:'high', tags:['Healthcare','Superpollutants','Scope 1'] },
+  { kind:'market',  source:'IQVIA', title:'Top 10 pharma companies double CDR allocation in 2025 portfolios',
+    body:'AstraZeneca, Novo Nordisk and Roche led a doubling of CDR allocation in pharmaceutical sustainability portfolios. Biochar and enhanced weathering are preferred — low land-use footprint aligns with biodiversity commitments.',
+    impact:'med', tags:['Pharma','CDR','Portfolio'] },
+  { kind:'policy',  source:'EU Commission', title:'CSRD sector standard for healthcare tightens Scope 3 disclosure',
+    body:'Draft ESRS sector standard for pharmaceuticals requires disclosure of downstream patient-use emissions and upstream API synthesis. This substantially expands the reportable inventory for most drug manufacturers.',
+    impact:'high', tags:['CSRD','Healthcare','Scope 3'] },
+];
+
+NEWS_TEMPLATES['Financial Services'] = [
+  { kind:'policy',  source:'NZBA', title:'Net Zero Banking Alliance tightens 2030 interim target review process',
+    body:'NZBA published its first peer review of member bank interim targets — 40% of members required to revise targets upward. Banks with significant fossil fuel loan books face pressure to pair transition finance with direct carbon removal purchasing.',
+    impact:'high', tags:['NZBA','Banking','Net zero'] },
+  { kind:'insight', source:'CUR8 Research', title:'Financed emissions (Scope 3 Cat 15) dwarf operational footprint for banks',
+    body:'For a typical major bank, financed emissions are 700–1,000× operational Scope 1+2. Portfolio alignment approaches (PACTA, PCAF) are gaining traction, but regulators increasingly expect complementary removal purchasing against residual financed emissions.',
+    impact:'high', tags:['Financed emissions','Scope 3','Banking'] },
+  { kind:'market',  source:'Climate Bonds Initiative', title:'Sustainability-linked bonds increasingly require CDR backstop commitments',
+    body:'New SLB structures from HSBC, BNP Paribas and ING include CDR procurement as a KPI. Pricing step-ups of 25–50bps triggered if removal purchasing targets are missed — directly linking treasury costs to carbon programme delivery.',
+    impact:'med', tags:['SLB','CDR','Financing'] },
+  { kind:'policy',  source:'ECB', title:'ECB climate risk stress test reveals transition exposure concentration',
+    body:'ECB 2025 climate stress test found top-50 eurozone banks hold 34% of their corporate loan book in high-transition-risk sectors. Supervisory guidance expected to require portfolio-level removal backstop disclosures in ICAAP submissions from 2027.',
+    impact:'high', tags:['ECB','Climate risk','Banking'] },
+];
+
+NEWS_TEMPLATES['Materials'] = NEWS_TEMPLATES['Industrials & Manufacturing'];
+NEWS_TEMPLATES['Infrastructure'] = NEWS_TEMPLATES['Industrials & Manufacturing'];
+NEWS_TEMPLATES['Power generation'] = NEWS_TEMPLATES['Energy & Utilities'];
+NEWS_TEMPLATES['Hospitality'] = NEWS_TEMPLATES['Retail'];
+
 // ---- Peer profiles for business case -------------------------
 const PEER_PROFILES_DB = {
   'KPMG': {
@@ -2059,7 +2201,8 @@ Object.assign(PEER_PROFILES_DB, {
 
 // ---- Generate news for a company ----------------------------
 function generateNews(prefs) {
-  const industry = prefs.industry || 'default';
+  // Use mapped news industry (from NZT/SBTi enrichment) if available, else fall back to raw industry string
+  const industry = prefs._newsIndustry || prefs.industry || 'default';
   const templates = NEWS_TEMPLATES[industry] || NEWS_TEMPLATES['default'];
   const universal = [
     { kind:'policy',  source:'European Commission', date:'2026-04-18',
@@ -5807,13 +5950,13 @@ function BCTiming({ prefs }) {
 function BCPeers({ prefs }) {
   const { PEER_PROFILES_DB } = window.CUR8_DATA;
   const peerNames = prefs.peers || [];
-  const peers = peerNames.map(n => PEER_PROFILES_DB[n]).filter(Boolean);
   const [selected, setSelected] = React.useState(0);
 
-  // Fallback: pick any 4 peers from DB with matching or similar industry
-  const fallbackPeers = !peers.length
-    ? Object.values(PEER_PROFILES_DB).slice(0, 4)
-    : null;
+  // Priority: PEER_PROFILES_DB named peers → NZT-sourced peers → generic fallback
+  const dbPeers = peerNames.map(n => PEER_PROFILES_DB[n]).filter(Boolean);
+  const nztPeers = prefs._nztPeers || [];
+  const peers = dbPeers.length ? dbPeers : nztPeers;
+  const fallbackPeers = !peers.length ? Object.values(PEER_PROFILES_DB).slice(0, 4) : null;
   const displayPeers = peers.length ? peers : fallbackPeers;
   const displayPeer = displayPeers[selected] || displayPeers[0];
   if (!displayPeer) return (
