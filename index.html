@@ -2117,7 +2117,7 @@ function matchSBTI(orgName) {
     let score = 0;
     if (name === q) { score = 100; }
     else if (name.startsWith(q) || q.startsWith(name)) { score = 80; }
-    else if (name.includes(q) || q.includes(name)) { score = 60; }
+    else if ((name.includes(q) || q.includes(name)) && Math.min(name.length, q.length) >= 5) { score = Math.max(42, Math.round(60 * Math.min(name.length, q.length) / Math.max(name.length, q.length))); }
     else {
       // word overlap
       const qw = new Set(q.split(' ').filter(w => w.length > 2));
