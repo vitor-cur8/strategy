@@ -1112,6 +1112,36 @@ const COMPANY_DB = [
     peers: ['Nestle','P&G','Danone','Reckitt'],
     industryTopics: ['agriculture emissions','deforestation','packaging','FMCG supply chain','nature-based solutions'],
   },
+  {
+    match: ['lego', 'lego group'],
+    orgName: 'The LEGO Group', industry: 'Retail & Consumer',
+    hq: 'Billund, Denmark', employees: 33801, revenue: 'DKK 83.5B (FY2025)', founded: 1932,
+    annualEmissions: 2190527,
+    emissionsBreakdown: { scope1: 21019, scope2: 531, scope3: 2168977 },
+    targetYear: 2050, sbtiAligned: true, includeSuperpollutants: false,
+    pricePerTonne: 130, totalBudget: 10000000,
+    goals: [
+      'Science-based target: reduce total GHG by 37% by 2032 vs 2019 baseline',
+      'Net zero across full value chain by 2050',
+      '100% renewable electricity (RE100 member)',
+      'Sustainable materials: 64% of resin via mass balance by 2025, >70% by 2026',
+      'Zero carbon emissions from sites with production — phase out natural gas',
+    ],
+    team: [
+      { name:'Niels B Christiansen', role:'CEO', email:'nbc@lego.com' },
+      { name:'Tim Brooks', role:'VP Environmental Sustainability', email:'tbrooks@lego.com' },
+      { name:'Loren I Shuster', role:'Chief People Officer & EVP', email:'lishuster@lego.com' },
+      { name:'Simon Mittler', role:'CFO', email:'smittler@lego.com' },
+    ],
+    requirements: [
+      'Credits must complement — not substitute — absolute emission reductions',
+      'Preference for projects aligned with LEGO play regions (EU, APAC, Americas)',
+      'High co-benefit evidence: child welfare and community impact favoured',
+      'Transparent MRV and third-party verification required',
+    ],
+    peers: ['Hasbro','Mattel','IKEA','Nestlé'],
+    industryTopics: ['plastics & materials','packaging circularity','supply chain decarbonisation','consumer brand integrity','renewable energy for manufacturing'],
+  },
 ];
 
 // ---- NZT industry → news template mapping --------------------
@@ -2665,6 +2695,8 @@ const EMISSIONS_DB = [
   ["Honeywell", 5000000, null, null, null, 2023],
   ["3M", 6500000, null, null, null, 2023],
   ["Schneider Electric", 9000000, null, null, null, 2023],
+  ["LEGO Group", 2190527, 21019, 531, 2168977, 2025],
+  ["The LEGO Group", 2190527, 21019, 531, 2168977, 2025],
 ];
 
 function matchEmissions(orgName) {
