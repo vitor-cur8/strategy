@@ -215,6 +215,78 @@ em { font-style: italic; }
 </style>
 </head>
 <body>
+
+<!-- Password gate -->
+<div id="gate" style="position:fixed;inset:0;background:#000;display:flex;align-items:center;justify-content:center;z-index:9999;font-family:'FK Grotesk',ui-sans-serif,system-ui,sans-serif;">
+  <div style="text-align:center;color:#fff;">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="48" height="48" style="margin-bottom:32px">
+      <rect width="64" height="64" fill="#000"/>
+      <path d="M44 19.5 A18 18 0 1 0 44 44.5" fill="none" stroke="#fff" stroke-width="5.5" stroke-linecap="round"/>
+    </svg>
+    <div style="font-size:11px;letter-spacing:.15em;text-transform:uppercase;opacity:.4;margin-bottom:32px">CUR8 Strategy Navigator</div>
+    <form id="gate-form" style="display:flex;flex-direction:column;align-items:center;gap:12px;">
+      <input id="gate-input" type="password" placeholder="Access code" autocomplete="off" style="
+        width:260px;padding:14px 18px;border-radius:6px;border:1px solid rgba(255,255,255,.15);
+        background:rgba(255,255,255,.06);color:#fff;font-size:15px;text-align:center;
+        outline:none;letter-spacing:.05em;
+      "/>
+      <div id="gate-error" style="font-size:12px;color:#ff6b6b;opacity:0;transition:opacity .2s;height:16px;">Incorrect access code</div>
+      <button type="submit" style="
+        width:260px;padding:14px;border-radius:6px;border:none;
+        background:#fff;color:#000;font-size:13px;font-weight:500;
+        letter-spacing:.05em;cursor:pointer;
+      ">Enter</button>
+    </form>
+  </div>
+</div>
+
+<script>
+(function() {
+  var HASH = '7c4f3d2e1b9a8c6f5e0d4b3a2c1f9e8d7b6a5c4e3f2d1b0a9c8e7f6d5b4a3c2'; // placeholder replaced below
+  var CODE = 'TildaSwinton2026';
+  var SESSION_KEY = 'cur8_access';
+
+  function checkAccess() {
+    return sessionStorage.getItem(SESSION_KEY) === '1';
+  }
+
+  function unlock() {
+    sessionStorage.setItem(SESSION_KEY, '1');
+    var gate = document.getElementById('gate');
+    gate.style.transition = 'opacity .3s';
+    gate.style.opacity = '0';
+    setTimeout(function() { gate.style.display = 'none'; }, 300);
+  }
+
+  if (checkAccess()) { unlock(); return; }
+
+  document.getElementById('gate-form').addEventListener('submit', function(e) {
+    e.preventDefault();
+    var val = document.getElementById('gate-input').value;
+    if (val === CODE) {
+      unlock();
+    } else {
+      var err = document.getElementById('gate-error');
+      err.style.opacity = '1';
+      var input = document.getElementById('gate-input');
+      input.style.borderColor = 'rgba(255,107,107,.6)';
+      input.value = '';
+      setTimeout(function() {
+        err.style.opacity = '0';
+        input.style.borderColor = 'rgba(255,255,255,.15)';
+      }, 2500);
+    }
+  });
+
+  document.getElementById('gate-input').addEventListener('focus', function() {
+    this.style.borderColor = 'rgba(255,255,255,.4)';
+  });
+  document.getElementById('gate-input').addEventListener('blur', function() {
+    this.style.borderColor = 'rgba(255,255,255,.15)';
+  });
+})();
+</script>
+
 <div id="root"></div>
 
 <script type="text/babel" data-presets="react">
