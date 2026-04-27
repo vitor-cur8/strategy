@@ -385,9 +385,11 @@ Object.assign(window, { fmt, Logo, Btn, Eyebrow, CatChip, Card, Bar, Rule });
 // ---- Method catalogue ----------------------------------------
 const METHODS = {
   // Superpollutants (avoidance, short atmospheric life)
-  ooag: { key: 'ooag',  name: 'Oil & gas well plugging', cat: 'SP',   price: 95,  region: 'NA',  durability: 1, color: 'var(--method-superpollutant)' },
-  amm:  { key: 'amm',   name: 'Abandoned mine methane',  cat: 'SP',   price: 110, region: 'NA',  durability: 1, color: 'var(--method-superpollutant)' },
-  ods:  { key: 'ods',   name: 'Ozone depleting subs.',   cat: 'SP',   price: 120, region: 'APAC',durability: 1, color: 'var(--method-superpollutant)' },
+  ooag: { key: 'ooag',  name: 'Oil & gas well plugging', cat: 'SP',   price: 95,  region: 'NA',    durability: 1, color: 'var(--method-superpollutant)' },
+  amm:  { key: 'amm',   name: 'Abandoned mine methane',  cat: 'SP',   price: 110, region: 'NA',    durability: 1, color: 'var(--method-superpollutant)' },
+  ods:  { key: 'ods',   name: 'Ozone depleting subs.',   cat: 'SP',   price: 120, region: 'APAC',  durability: 1, color: 'var(--method-superpollutant)' },
+  lfg:  { key: 'lfg',   name: 'Landfill gas methane',    cat: 'SP',   price: 18,  region: 'LATAM', durability: 1, color: 'var(--method-superpollutant)' },
+  ldar: { key: 'ldar',  name: 'Leak detection & repair', cat: 'SP',   price: 35,  region: 'APAC',  durability: 1, color: 'var(--method-superpollutant)' },
 
   // Nature-based removals
   arr:    { key: 'arr',    name: 'Reforestation',        cat: 'NBS',  price: 55,  region: 'LATAM', durability: 3, color: 'var(--method-arr)' },
@@ -667,8 +669,10 @@ function computeStrategy(prefs) {
   // Select SP projects from SP_PROJECTS based on active SP methods
   const SP_METHOD_TO_DB = {
     ooag: ['Well Plugging'],
-    amm:  ['Abandoned Mine Methane'],
+    amm:  ['Abandoned Mine Methane', 'Coal Mine Methane'],
     ods:  ['ODS Destruction'],
+    lfg:  ['Landfill Gas', 'Manure Management', 'Wastewater Treatment'],
+    ldar: ['Leak Detection'],
   };
   if (prefs.includeSuperpollutants) {
     const activeSpKeys = Object.keys(METHODS).filter(k => METHODS[k].cat === 'SP' && prefs.regions.includes(METHODS[k].region));
@@ -2327,6 +2331,123 @@ const SP_PROJECTS = [
   { n:'Shell Idle Well Programme — Netherlands',          s:'Shell',                  c:'Netherlands',   r:'EU',   m:'Well Plugging',       reg:'Verra',        status:'Active',    note:'Plugging of onshore abandoned wells in Groningen and other Dutch fields as part of production wind-down.' },
   { n:'CNOOC Idle Well Plugging — Bohai Bay',             s:'CNOOC',                  c:'China',         r:'APAC', m:'Well Plugging',       reg:'Verra',        status:'Active',    note:'Decommissioning and plugging of mature offshore platform wells in Bohai Bay under Verra VM0049.' },
 ];
+
+// ---- Calyx Tier 1 SP project catalogue (104 verified projects) ----
+SP_PROJECTS.push(
+  // --- Landfill Gas ---
+  { n:'CTL Landfill Gas Project', s:'CTL', c:'Brazil', r:'LATAM', m:'Landfill Gas', reg:'Gold Standard', status:'Active', note:'GS12062. Landfill gas capture and energy utilisation. ACM0001. Rated 2013–2025.' },
+  { n:'Ecoparque João Pessoa Landfill Gas Project', s:'Ecoparque', c:'Brazil', r:'LATAM', m:'Landfill Gas', reg:'Gold Standard', status:'Active', note:'GS12045. Landfill gas capture. ACM0001. Rated 2008–2018.' },
+  { n:'Ecoparque Candeias Landfill Gas Project', s:'Ecoparque', c:'Brazil', r:'LATAM', m:'Landfill Gas', reg:'Gold Standard', status:'Active', note:'GS12047. Landfill gas capture. ACM0001. Rated 2018–2025.' },
+  { n:'Ecoparque Sergipe Landfill Gas Project', s:'Ecoparque', c:'Brazil', r:'LATAM', m:'Landfill Gas', reg:'Gold Standard', status:'Active', note:'GS12205. Landfill gas capture. ACM0001. Rated 2023–2025.' },
+  { n:'Ecoparque Maceió Landfill Gas Project', s:'Ecoparque', c:'Brazil', r:'LATAM', m:'Landfill Gas', reg:'Gold Standard', status:'Active', note:'GS12199. Landfill gas capture. ACM0001. Rated 2023–2025.' },
+  { n:'Manaus Landfill Gas Project', s:'Manaus', c:'Brazil', r:'LATAM', m:'Landfill Gas', reg:'Gold Standard', status:'Active', note:'GS11728. Landfill gas capture. ACM0001. Rated 2021–2024.' },
+  { n:'Uberlândia Landfills I and II', s:'Uberlândia', c:'Brazil', r:'LATAM', m:'Landfill Gas', reg:'Gold Standard', status:'Active', note:'GS3434. Landfill gas capture and electricity generation. ACM0001. Rated 2012–2024.' },
+  { n:'Macaúbas Landfill Gas Project', s:'Macaúbas', c:'Brazil', r:'LATAM', m:'Landfill Gas', reg:'Verra', status:'Active', note:'VCS3010. Landfill gas capture. ACM0001. Rated 2013–2020.' },
+  { n:'Salvador da Bahia Landfill Gas Management', s:'Salvador', c:'Brazil', r:'LATAM', m:'Landfill Gas', reg:'Verra', status:'Active', note:'VCS1902. Landfill gas management and energy generation. ACM0001. Rated 2018–2020.' },
+  { n:'Oeste de Caucaia Landfill Project Activity', s:'Caucaia', c:'Brazil', r:'LATAM', m:'Landfill Gas', reg:'Verra', status:'Active', note:'VCS2600. Landfill gas capture. ACM0001. Rated 2016–2020.' },
+  { n:'Caieiras Landfill Gas Emission Reduction', s:'Caieiras', c:'Brazil', r:'LATAM', m:'Landfill Gas', reg:'CDM', status:'Active', note:'CDM171. Landfill gas capture and flaring. ACM0001. Rated 2006–2016.' },
+  { n:'CGR Guatapara Landfill Project', s:'CGR', c:'Brazil', r:'LATAM', m:'Landfill Gas', reg:'CDM', status:'Active', note:'CDM6553. Landfill gas capture. ACM0001. Rated 2012–2020.' },
+  { n:'ESTRE Pedreira Landfill Gas Project', s:'ESTRE', c:'Brazil', r:'LATAM', m:'Landfill Gas', reg:'CDM', status:'Active', note:'CDM1134. Landfill gas capture. ACM0001. Rated 2008–2020.' },
+  { n:'CTR Candeias Landfill Gas Project', s:'CTR', c:'Brazil', r:'LATAM', m:'Landfill Gas', reg:'CDM', status:'Active', note:'CDM3958. Landfill gas capture. ACM0001. Rated 2011–2018.' },
+  { n:'Exploitation of Biogas in Minas Gerais', s:'Minas Gerais', c:'Brazil', r:'LATAM', m:'Landfill Gas', reg:'Verra', status:'Active', note:'VCS897. Biogas capture from landfill. ACM0001. Rated 2009–2011.' },
+  { n:'Bionersis Landfill Project — Pasto, Colombia', s:'Bionersis', c:'Colombia', r:'LATAM', m:'Landfill Gas', reg:'Verra', status:'Active', note:'VCS1910. Landfill gas capture and flaring. AMS-III.G. Rated 2009–2019.' },
+  { n:'Culiacan Northern Landfill Gas Project', s:'Culiacan', c:'Mexico', r:'LATAM', m:'Landfill Gas', reg:'Verra', status:'Active', note:'VCS2332. Landfill gas capture. ACM0001. Rated 2010–2020.' },
+  { n:'Ciudad Juarez Landfill Gas to Energy', s:'Ciudad Juarez', c:'Mexico', r:'LATAM', m:'Landfill Gas', reg:'CAR', status:'Active', note:'CAR1696. Landfill gas to energy. Mexico Landfill Project Protocol. Rated 2021–2023.' },
+  { n:'Santa Marta LFG Capture for Electricity Generation', s:'Santa Marta', c:'Chile', r:'LATAM', m:'Landfill Gas', reg:'Gold Standard', status:'Active', note:'GS3976. Landfill gas to electricity. ACM0001. Rated 2007–2012.' },
+  { n:'Nejapa Landfill Gas to Energy Facility', s:'Nejapa', c:'El Salvador', r:'LATAM', m:'Landfill Gas', reg:'Verra', status:'Active', note:'VCS1440. Landfill gas to energy. ACM0001. Rated 2006–2013.' },
+  { n:'IESI Trinity Timber Ridge Landfill', s:'IESI', c:'United States', r:'NA', m:'Landfill Gas', reg:'CAR', status:'Active', note:'CAR838. Landfill gas capture. Landfill Project Protocol. Rated 2011–2025.' },
+  { n:'Hilltop Sand and Gravel Landfill', s:'Hilltop', c:'United States', r:'NA', m:'Landfill Gas', reg:'CAR', status:'Active', note:'CAR829. Landfill gas capture. Landfill Project Protocol. Rated 2010–2023.' },
+  { n:'Bursa-Hamitler LFG Collection and Energy Utilization', s:'Bursa-Hamitler', c:'Türkiye', r:'EU', m:'Landfill Gas', reg:'Gold Standard', status:'Active', note:'GS1068. Landfill gas collection and electricity generation. ACM0001. Rated 2012–2025.' },
+  { n:'Kayseri Molu Landfill Gas Energy Project', s:'Kayseri', c:'Türkiye', r:'EU', m:'Landfill Gas', reg:'Gold Standard', status:'Active', note:'GS1061. Landfill gas to energy. ACM0001. Rated 2011–2021.' },
+  { n:'Istanbul Landfill Gas Electricity Generation Project', s:'Istanbul', c:'Türkiye', r:'EU', m:'Landfill Gas', reg:'Gold Standard', status:'Active', note:'GS707. Landfill gas to electricity. ACM0001. Rated 2010–2017.' },
+  { n:'Samsun Landfill Gas to Energy Project', s:'Samsun', c:'Türkiye', r:'EU', m:'Landfill Gas', reg:'Gold Standard', status:'Active', note:'GS935. Landfill gas to energy. ACM0001. Rated 2011–2018.' },
+  { n:'Sincan Landfill Gas Collection and Energy Utilization', s:'Sincan', c:'Türkiye', r:'EU', m:'Landfill Gas', reg:'Gold Standard', status:'Active', note:'GS675. Landfill gas collection. ACM0001. Rated 2011–2017.' },
+  { n:'Mamak Landfill Waste Management Project', s:'Mamak', c:'Türkiye', r:'EU', m:'Landfill Gas', reg:'Gold Standard', status:'Active', note:'GS440. Landfill gas capture. ACM0001. Rated 2007–2014.' },
+  { n:'Gaziantep Landfill Gas to Energy Project', s:'Gaziantep', c:'Türkiye', r:'EU', m:'Landfill Gas', reg:'Gold Standard', status:'Active', note:'GS745. Landfill gas to energy. ACM0001. Rated 2010–2017.' },
+  { n:'Ningbo Yinzhou Landfill Gas Recovery and Utilization Project', s:'Ningbo', c:'China', r:'APAC', m:'Landfill Gas', reg:'Verra', status:'Active', note:'VCS2099. Landfill gas recovery and utilisation. ACM0001. Rated 2011–2021.' },
+  { n:'Xinyang MSW LFG Recovery to Power', s:'Xinyang', c:'China', r:'APAC', m:'Landfill Gas', reg:'Gold Standard', status:'Active', note:'GS1253. Landfill gas to power. AMS-I.D. Rated 2011–2021.' },
+  { n:'Liling LFG Power Generation Project', s:'Liling', c:'China', r:'APAC', m:'Landfill Gas', reg:'Verra', status:'Active', note:'VCS2503. Landfill gas to power. ACM0001. Rated 2020–2024.' },
+  { n:'Nanchang Maiyuan Landfill Gas Recovery and Utilization', s:'Nanchang', c:'China', r:'APAC', m:'Landfill Gas', reg:'Verra', status:'Active', note:'VCS2358. Landfill gas recovery. ACM0001. Rated 2009–2022.' },
+  { n:'Yichang Huangjiawan MSW Landfill Project', s:'Yichang', c:'China', r:'APAC', m:'Landfill Gas', reg:'Verra', status:'Active', note:'VCS2680. Landfill gas capture. AMS-I.D. Rated 2013–2022.' },
+  { n:'Zhijiang Shibaoshan LFG Power Generation Project', s:'Zhijiang', c:'China', r:'APAC', m:'Landfill Gas', reg:'Verra', status:'Active', note:'VCS2582. Landfill gas to power. AMS-III.G. Rated 2021–2024.' },
+  { n:'Shandong Laiwu LFG Recovery and Power Generation', s:'Shandong', c:'China', r:'APAC', m:'Landfill Gas', reg:'Verra', status:'Active', note:'VCS2260. Landfill gas to power. ACM0001. Rated 2010–2020.' },
+  { n:'Fuzhou Hongmiaoling Landfill Gas to Electricity', s:'Fuzhou', c:'China', r:'APAC', m:'Landfill Gas', reg:'Verra', status:'Active', note:'VCS253. Landfill gas to electricity. ACM0001. Rated 2007–2017.' },
+  { n:'Mokpo Landfill Gas Recovery', s:'Mokpo', c:'South Korea', r:'APAC', m:'Landfill Gas', reg:'CDM', status:'Active', note:'CDM2834. Landfill gas recovery. AMS-I.D., AMS-III.G. Rated 2010–2020.' },
+  { n:'Jinju Landfill Gas Recovery', s:'Jinju', c:'South Korea', r:'APAC', m:'Landfill Gas', reg:'CDM', status:'Active', note:'CDM6922. Landfill gas recovery. AMS-I.D., AMS-III.G. Rated 2012–2015.' },
+  { n:'Interwaste Landfill Gas Grouped Project', s:'Interwaste', c:'South Africa', r:'AF', m:'Landfill Gas', reg:'Verra', status:'Active', note:'VCS1794. Landfill gas grouped project. ACM0001. Rated 2015–2022.' },
+  { n:'Joburg Landfill Gas to Energy Project', s:'Joburg', c:'South Africa', r:'AF', m:'Landfill Gas', reg:'Verra', status:'Active', note:'VCS2511. Landfill gas to energy. ACM0001. Rated 2012–2019.' },
+  { n:'Durban Landfill-Gas Bisasar Road', s:'Durban', c:'South Africa', r:'AF', m:'Landfill Gas', reg:'Verra', status:'Active', note:'VCS2501. Landfill gas capture. ACM0001. Rated 2009–2016.' },
+  { n:'EnviroServ Chloorkop Landfill Gas Recovery', s:'EnviroServ', c:'South Africa', r:'AF', m:'Landfill Gas', reg:'Verra', status:'Active', note:'VCS1514. Landfill gas recovery. AM0011. Rated 2008–2020.' },
+  { n:'Mtoni Dumpsite LFG Recovery — Dar Es Salaam', s:'Mtoni', c:'Tanzania', r:'AF', m:'Landfill Gas', reg:'Verra', status:'Active', note:'VCS1564. Landfill gas recovery and electricity generation. ACM0001. Rated 2007–2012.' },
+
+  // --- ODS Destruction (Calyx verified) ---
+  { n:'Tradewater US - ODS - #10', s:'Tradewater', c:'United States', r:'NA', m:'ODS Destruction', reg:'ACR', status:'Active', note:'ACR1124. ODS destruction. ACR High-GWP Foam protocol v2.0. Rated 2025.' },
+  { n:'Tradewater US - ODS - #11', s:'Tradewater', c:'United States', r:'NA', m:'ODS Destruction', reg:'ACR', status:'Active', note:'ACR1173. ODS destruction. ACR High-GWP Foam protocol v2.0. Rated 2025.' },
+  { n:'Tradewater US ODS #2', s:'Tradewater', c:'United States', r:'NA', m:'ODS Destruction', reg:'ACR', status:'Active', note:'ACR758. ODS destruction. ACR High-GWP Foam protocol v2.0. Rated 2022.' },
+  { n:'Tradewater U.S. ODS #3', s:'Tradewater', c:'United States', r:'NA', m:'ODS Destruction', reg:'ACR', status:'Active', note:'ACR875. ODS destruction. ACR High-GWP Foam protocol v2.0. Rated 2023.' },
+  { n:'Tradewater US - ODS - #7', s:'Tradewater', c:'United States', r:'NA', m:'ODS Destruction', reg:'ACR', status:'Active', note:'ACR1103. ODS destruction. ACR High-GWP Foam protocol v2.0. Rated 2024.' },
+  { n:'Tradewater US - ODS - #8', s:'Tradewater', c:'United States', r:'NA', m:'ODS Destruction', reg:'ACR', status:'Active', note:'ACR1107. ODS destruction. ACR High-GWP Foam protocol v2.0. Rated 2024.' },
+  { n:'Tradewater - US - ODS #9', s:'Tradewater', c:'United States', r:'NA', m:'ODS Destruction', reg:'ACR', status:'Active', note:'ACR1117. ODS destruction. ACR High-GWP Foam protocol v2.0. Rated 2025.' },
+  { n:'A-Gas ODS-VER1', s:'A-Gas', c:'United States', r:'NA', m:'ODS Destruction', reg:'ACR', status:'Active', note:'ACR849. ODS destruction. ACR High-GWP Foam protocol v2.0. Rated 2023.' },
+  { n:'A-Gas ODS-VER2', s:'A-Gas', c:'United States', r:'NA', m:'ODS Destruction', reg:'ACR', status:'Active', note:'ACR933. ODS destruction. ACR High-GWP Foam protocol v2.0. Rated 2023.' },
+  { n:'A-Gas ODS-VER3', s:'A-Gas', c:'United States', r:'NA', m:'ODS Destruction', reg:'ACR', status:'Active', note:'ACR1045. ODS destruction. ACR High-GWP Foam protocol v2.0. Rated 2023–2024.' },
+  { n:'A-Gas ODS-VER5', s:'A-Gas', c:'United States', r:'NA', m:'ODS Destruction', reg:'ACR', status:'Active', note:'ACR1172. ODS destruction. ACR High-GWP Foam protocol v2.0. Rated 2024–2025.' },
+  { n:'DPC Domestic ODS Destruction #9', s:'DPC', c:'United States', r:'NA', m:'ODS Destruction', reg:'CAR', status:'Active', note:'CAR972. ODS destruction. CAR U.S. ODS Protocol. Rated 2012–2022.' },
+  { n:'DPC Domestic ODS Destruction #10', s:'DPC', c:'United States', r:'NA', m:'ODS Destruction', reg:'CAR', status:'Active', note:'CAR975. ODS destruction. CAR U.S. ODS Protocol. Rated 2012–2022.' },
+  { n:'EOS ACR 2013', s:'EOS', c:'United States', r:'NA', m:'ODS Destruction', reg:'ACR', status:'Active', note:'ACR184. ODS destruction. CAR U.S. ODS Protocol. Rated 2013–2023.' },
+  { n:'Tradewater U.S. ODS #5', s:'Tradewater', c:'United States', r:'NA', m:'ODS Destruction', reg:'ACR', status:'Active', note:'ACR1041. ODS destruction. ACR High-GWP Foam protocol v2.0. Rated 2024.' },
+  { n:'A-Gas South Korea 5', s:'A-Gas', c:'South Korea', r:'APAC', m:'ODS Destruction', reg:'ACR', status:'Active', note:'ACR1148. ODS destruction from international sources. Rated 2025.' },
+  { n:'A-Gas – South Korea 1', s:'A-Gas', c:'South Korea', r:'APAC', m:'ODS Destruction', reg:'ACR', status:'Active', note:'ACR823. ODS destruction from international sources. Rated 2022–2032.' },
+  { n:'A-Gas – South Korea 2', s:'A-Gas', c:'South Korea', r:'APAC', m:'ODS Destruction', reg:'ACR', status:'Active', note:'ACR882. ODS destruction from international sources. Rated 2023–2033.' },
+  { n:'A-Gas – South Korea 3', s:'A-Gas', c:'South Korea', r:'APAC', m:'ODS Destruction', reg:'ACR', status:'Active', note:'ACR979. ODS destruction from international sources. Rated 2024–2034.' },
+  { n:'A-Gas – South Korea 4', s:'A-Gas', c:'South Korea', r:'APAC', m:'ODS Destruction', reg:'ACR', status:'Active', note:'ACR1039. ODS destruction from international sources. Rated 2024–2034.' },
+  { n:'Tradewater – Thailand 2', s:'Tradewater', c:'Thailand', r:'APAC', m:'ODS Destruction', reg:'ACR', status:'Active', note:'ACR839. ODS destruction from international sources. Rated 2023–2033.' },
+  { n:'Tradewater – Thailand 3', s:'Tradewater', c:'Thailand', r:'APAC', m:'ODS Destruction', reg:'ACR', status:'Active', note:'ACR844. ODS destruction from international sources. Rated 2023–2033.' },
+  { n:'Tradewater – Thailand 6', s:'Tradewater', c:'Thailand', r:'APAC', m:'ODS Destruction', reg:'ACR', status:'Active', note:'ACR937. ODS destruction from international sources. Rated 2023–2033.' },
+  { n:'Tradewater – Thailand 7', s:'Tradewater', c:'Thailand', r:'APAC', m:'ODS Destruction', reg:'ACR', status:'Active', note:'ACR1108. ODS destruction from international sources. Rated 2024–2025.' },
+  { n:'Tradewater International Thailand 1.0', s:'Tradewater', c:'Thailand', r:'APAC', m:'ODS Destruction', reg:'ACR', status:'Active', note:'ACR814. ODS destruction from international sources. Rated 2022–2023.' },
+  { n:'Tradewater – Thailand 4', s:'Tradewater', c:'Thailand', r:'APAC', m:'ODS Destruction', reg:'ACR', status:'Active', note:'ACR903. ODS destruction from international sources. Rated 2023–2033.' },
+  { n:'Tradewater – Thailand 5', s:'Tradewater', c:'Thailand', r:'APAC', m:'ODS Destruction', reg:'ACR', status:'Active', note:'ACR924. ODS destruction from international sources. Rated 2023–2033.' },
+  { n:'Coolgas India ODS Project 2', s:'Coolgas', c:'India', r:'APAC', m:'ODS Destruction', reg:'CAR', status:'Active', note:'CAR597. ODS destruction. CAR Article 5 ODS Protocol. Rated 2010–2020.' },
+  { n:'EOS Article 5 – Nepal', s:'EOS', c:'Nepal', r:'APAC', m:'ODS Destruction', reg:'CAR', status:'Active', note:'CAR955. ODS destruction. CAR Article 5 ODS Protocol. Rated 2013–2023.' },
+  { n:'Tradewater – Middle East 1', s:'Tradewater', c:'Saudi Arabia', r:'APAC', m:'ODS Destruction', reg:'ACR', status:'Active', note:'ACR1129. ODS destruction from international sources. Rated 2025.' },
+  { n:'Tradewater – Middle East 2', s:'Tradewater', c:'Saudi Arabia', r:'APAC', m:'ODS Destruction', reg:'ACR', status:'Active', note:'ACR1194. ODS destruction from international sources. Rated 2025–2035.' },
+  { n:'Tradewater – Saudi Arabia 1', s:'Tradewater', c:'Saudi Arabia', r:'APAC', m:'ODS Destruction', reg:'ACR', status:'Active', note:'ACR793. ODS destruction from international sources. Rated 2024–2034.' },
+  { n:'Tradewater – Chile 1', s:'Tradewater', c:'Chile', r:'LATAM', m:'ODS Destruction', reg:'ACR', status:'Active', note:'ACR893. ODS destruction from international sources. Rated 2024–2034.' },
+  { n:'Tradewater International Honduras 1.0', s:'Tradewater', c:'Honduras', r:'LATAM', m:'ODS Destruction', reg:'ACR', status:'Active', note:'ACR799. ODS destruction from international sources. Rated 2022.' },
+  { n:'Tradewater International Dominican Republic', s:'Tradewater', c:'Dominican Republic', r:'LATAM', m:'ODS Destruction', reg:'Verra', status:'Active', note:'VCS2449. ODS destruction. VM0016. Rated 2021–2031.' },
+  { n:'O.S.L. ODS Destruction Mexico', s:'O.S.L.', c:'Mexico', r:'LATAM', m:'ODS Destruction', reg:'CAR', status:'Active', note:'CAR826. ODS destruction. CAR Article 5 ODS Protocol. Rated 2012–2022.' },
+  { n:'RemTec ODS Mexico', s:'RemTec', c:'Mexico', r:'LATAM', m:'ODS Destruction', reg:'CAR', status:'Active', note:'CAR691. ODS destruction. CAR Article 5 ODS Protocol. Rated 2010–2020.' },
+  { n:'TW Ghana ODS Project', s:'Tradewater', c:'Ghana', r:'AF', m:'ODS Destruction', reg:'Verra', status:'Active', note:'VCS1752. ODS destruction. VM0016. Rated 2018–2028.' },
+
+  // --- Mine Methane (Calyx verified) ---
+  { n:'Federal 2 Abandoned Mine Methane Recovery Project', s:'Federal 2', c:'United States', r:'NA', m:'Abandoned Mine Methane', reg:'ACR', status:'Active', note:'ACR761. Abandoned mine methane capture and oxidation. Rated 2021–2024.' },
+  { n:'OMMC1 Abandoned Mine Methane', s:'OMMC', c:'United States', r:'NA', m:'Abandoned Mine Methane', reg:'ACR', status:'Active', note:'ACR812. Abandoned mine methane — coal and trona mines. Rated 2022–2024.' },
+  { n:'DMMC1 Coal Mine Methane', s:'DMMC', c:'United States', r:'NA', m:'Coal Mine Methane', reg:'ACR', status:'Active', note:'ACR940. Active coal mine methane drainage. ARB Mine Methane Capture Protocol. Rated 2023–2025.' },
+  { n:'PMMC1 Coal Mine Methane', s:'PMMC', c:'United States', r:'NA', m:'Coal Mine Methane', reg:'ACR', status:'Active', note:'ACR1118. Active coal mine methane drainage. ARB Mine Methane Capture Protocol. Rated 2024–2025.' },
+  { n:'Marshall County Flare I', s:'Marshall County', c:'United States', r:'NA', m:'Coal Mine Methane', reg:'ACR', status:'Active', note:'ACR493. Active mine methane drainage and flaring. Rated 2019–2024.' },
+
+  // --- Manure Management ---
+  { n:'Poultry Litter Based Power Project, Andhra Pradesh', s:'Andhra Pradesh', c:'India', r:'APAC', m:'Manure Management', reg:'Gold Standard', status:'Active', note:'GS3072. Poultry litter biogas to power. ACM0010. Rated 2013–2022.' },
+  { n:'Methane Recovery Project Princepeel Wilbertoord', s:'Wilbertoord', c:'Netherlands', r:'EU', m:'Manure Management', reg:'Verra', status:'Active', note:'VCS337. Manure methane recovery and energy. AMS-III.D. Rated 2007–2022.' },
+  { n:'Brascarbon Methane Recovery BCA-BRA-17', s:'Brascarbon', c:'Brazil', r:'LATAM', m:'Manure Management', reg:'Verra', status:'Active', note:'VCS3056. Livestock manure methane recovery. AMS-III.D. Rated 2021–2023.' },
+  { n:'Brascarbon Methane Recovery BCA-BRA-18', s:'Brascarbon', c:'Brazil', r:'LATAM', m:'Manure Management', reg:'Verra', status:'Active', note:'VCS4288. Livestock manure methane recovery. AMS-III.D. Rated 2022.' },
+  { n:'Brascarbon Methane Recovery BCA-BRA-19', s:'Brascarbon', c:'Brazil', r:'LATAM', m:'Manure Management', reg:'Verra', status:'Active', note:'VCS4289. Livestock manure methane recovery. AMS-III.D. Rated 2022.' },
+
+  // --- Wastewater Treatment ---
+  { n:'Papop Biogas and Renewable Energy Project', s:'Papop', c:'Thailand', r:'APAC', m:'Wastewater Treatment', reg:'Gold Standard', status:'Active', note:'GS3992. Wastewater biogas to energy. ACM0014. Rated 2016–2022.' },
+  { n:'CYY Biopower Wastewater Treatment — Thailand', s:'CYY Biopower', c:'Thailand', r:'APAC', m:'Wastewater Treatment', reg:'Gold Standard', status:'Active', note:'GS560. Wastewater biogas for thermal oil and electricity. AM0022. Rated 2008–2018.' },
+  { n:'Bangna Starch Wastewater Treatment and Biogas Utilization', s:'Bangna Starch', c:'Thailand', r:'APAC', m:'Wastewater Treatment', reg:'Gold Standard', status:'Active', note:'GS565. Wastewater biogas utilisation. AMS-I.D., AMS-III.H. Rated 2009–2021.' },
+  { n:'VP Biosupply Wastewater Project', s:'VP Biosupply', c:'Thailand', r:'APAC', m:'Wastewater Treatment', reg:'Verra', status:'Active', note:'VCS415. Wastewater biogas utilisation. AMS-I.C., AMS-III.H. Rated 2016–2021.' },
+  { n:'SD Biosupply Wastewater Treatment and Biogas Utilization', s:'SD Biosupply', c:'Thailand', r:'APAC', m:'Wastewater Treatment', reg:'Verra', status:'Active', note:'VCS416. Wastewater biogas utilisation. AMS-I.C., AMS-III.H. Rated 2016–2021.' },
+  { n:'Linshu Biogas Recovery and Power Generation Project', s:'Linshu', c:'China', r:'APAC', m:'Wastewater Treatment', reg:'Verra', status:'Active', note:'VCS2402. Biogas from wastewater to power. ACM0014. Rated 2019–2023.' },
+
+  // --- Leak Detection & Repair ---
+  { n:'Hududgaz Gas Leak Detection — Uzbekistan', s:'Hududgaz', c:'Uzbekistan', r:'EU', m:'Leak Detection', reg:'Verra', status:'Active', note:'VCS4531. Gas distribution network leak reduction. AM0023. Rated 2023–2024.' },
+  { n:'Titas Gas Distribution Leak Reduction — Bangladesh', s:'Titas Gas', c:'Bangladesh', r:'APAC', m:'Leak Detection', reg:'Verra', status:'Active', note:'VCS2930/VCS2478. Gas network leak detection and repair. AM0023. Rated 2017–2022.' },
+  { n:'Jalalabad Gas Distribution Leak Reduction — Bangladesh', s:'Jalalabad Gas', c:'Bangladesh', r:'APAC', m:'Leak Detection', reg:'Verra', status:'Active', note:'VCS2737. Gas distribution network leak reduction. AM0023. Rated 2019–2022.' },
+  { n:'Bakhrabad Gas Distribution Leak Reduction — Bangladesh', s:'Bakhrabad Gas', c:'Bangladesh', r:'APAC', m:'Leak Detection', reg:'Verra', status:'Active', note:'VCS2736. Gas distribution network leak reduction. AM0023. Rated 2019–2022.' }
+);
 
 
 // ---- Net Zero Tracker company database (2,087 companies) ----
