@@ -562,6 +562,59 @@ const TEN_YEARS = YEARS.slice(0, 10);
 
 // ---- Strategy engine ---------------------------------------
 // Given prefs → returns per-year allocation by category and project line items.
+// ---- Project fit scoring (company-aware) ---------------------
+// Returns a composite score so that different companies surface different
+// projects even when their regions + methods overlap.
+// Inputs: a REAL_PROJECTS row (p), current prefs, and the strategy method key.
+function projectFitScore(p, prefs, methodKey) {
+  let score = (p.rank || 0) * 10; // base 0–60 from pipeline diligence rank
+
+  // 1. Industry preferred-methods boost
+  const profile = INDUSTRY_PROFILES[prefs.industry] || INDUSTRY_PROFILES['default'];
+  if ((profile.preferredMethods || []).includes(methodKey)) score += 20;
+
+  // 2. Budget fit — compare method list price to the company's target $/tCO₂
+  const m = METHODS[methodKey];
+  if (m && prefs.pricePerTonne) {
+    const ratio = m.price / prefs.pricePerTonne;
+    if (ratio >= 0.6 && ratio <= 1.4) score += 12; // comfortable fit
+    else if (ratio > 2.0) score -= 10;             // well above budget
+    else if (ratio < 0.3) score -= 5;              // suspiciously cheap
+  }
+
+  // 3. Durability match vs minDurability slider
+  const durNum = p.dur === '1000+' ? 1000 : parseInt(p.dur) || 30;
+  const minDur = prefs.minDurability || 1;
+  if (minDur >= 5 && durNum >= 1000) score += 18;
+  else if (minDur >= 3 && durNum >= 100) score += 10;
+  else if (minDur <= 1 && durNum < 100)  score += 5;
+
+  // 4. Registry quality for SBTi-committed companies
+  if (prefs.sbtiAligned) {
+    if (['Isometric', 'Puro', 'Gold Standard'].includes(p.reg)) score += 12;
+    else if (p.reg === 'Verra') score += 6;
+  }
+
+  // 5. Goals alignment
+  const goals = analyseGoals(prefs.goals || []);
+  if (goals.durableOnly) {
+    score += durNum >= 1000 ? 18 : -12;
+  }
+  if (goals.natureTheme && /ARR|IFM|Ecosystem|Mangrove|Soil|Ag Land/.test(p.m || '')) score += 10;
+  if (goals.travelFocus && profile.travelHeavy) score += 6;
+
+  // 6. Emission size — large emitters prefer higher-volume (higher rank) projects
+  if ((prefs.annualEmissions || 0) > 10_000_000 && p.rank >= 5) score += 8;
+
+  // 7. Deterministic company-specific tie-breaker
+  // Same company always gets the same projects; different companies diverge.
+  const orgHash = (prefs.orgName || '').split('').reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
+  const projHash = (p.n || '').split('').reduce((a, c) => (a * 17 + c.charCodeAt(0)) >>> 0, 3);
+  score += ((orgHash ^ projHash) % 100) / 100 * 10; // 0–10 deterministic bonus
+
+  return score;
+}
+
 function computeStrategy(prefs) {
   const annual = prefs.annualEmissions;
 
@@ -637,7 +690,8 @@ function computeStrategy(prefs) {
   });
 
   // For each active method, pick top-ranked real projects (region-preferred, then global fallback)
-  const PROJECTS_PER_METHOD = 1;
+  // 2 per method gives enough variety for different companies to see different sets.
+  const PROJECTS_PER_METHOD = 2;
   const usedProjectNames = new Set();
   const selectedProjects = [];
 
@@ -645,15 +699,15 @@ function computeStrategy(prefs) {
     const dbMethods = METHOD_KEY_TO_DB[key] || [];
     if (!dbMethods.length) return;
 
-    // Region-matching candidates first, sorted by pipeline rank desc
+    // Region-matching candidates first, sorted by company-aware composite score
     const regional = REAL_PROJECTS.filter(p =>
       dbMethods.includes(p.m) && prefs.regions.includes(p.r) && !usedProjectNames.has(p.n)
-    ).sort((a, b) => b.rank - a.rank);
+    ).sort((a, b) => projectFitScore(b, prefs, key) - projectFitScore(a, prefs, key));
 
     // Fallback: any geography if not enough regional
     const global = REAL_PROJECTS.filter(p =>
       dbMethods.includes(p.m) && !prefs.regions.includes(p.r) && !usedProjectNames.has(p.n)
-    ).sort((a, b) => b.rank - a.rank);
+    ).sort((a, b) => projectFitScore(b, prefs, key) - projectFitScore(a, prefs, key));
 
     const picks = regional.slice(0, PROJECTS_PER_METHOD);
     if (picks.length < PROJECTS_PER_METHOD) {
