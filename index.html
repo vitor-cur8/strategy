@@ -3485,10 +3485,16 @@ function StepBudget({ prefs, setPrefs }) {
               </div>
               <input type="range" min={50} max={400} step={10}
                 value={prefs.pricePerTonne}
-                onChange={e => setPrefs({...prefs, pricePerTonne: +e.target.value})}
+                onChange={e => {
+                  const p = +e.target.value;
+                  setPrefs({...prefs, pricePerTonne: p, totalBudget: Math.round(s.tenYrTotalT * p)});
+                }}
                 style={slider}/>
               <div style={{display:'flex', justifyContent:'space-between', fontFamily:'var(--font-mono)', fontSize: 10, letterSpacing:'.06em', color:'var(--color-umber)', marginTop: 6}}>
                 <span>$50</span><span>$400</span>
+              </div>
+              <div style={{fontSize: 11, color:'var(--color-earth)', marginTop: 10, fontFamily:'var(--font-mono)', letterSpacing:'.03em'}}>
+                10-yr investment at this price: <strong>{fmt.money(Math.round(s.tenYrTotalT * prefs.pricePerTonne))}</strong>
               </div>
             </div>
           ) : (
@@ -6138,7 +6144,12 @@ function PrefsDrawer({ prefs, setPrefs, onClose }) {
                   <span style={{fontFamily:'var(--font-mono)', fontSize: 13, fontWeight:500}}>${prefs.pricePerTonne}</span>
                 </div>
                 <input type="range" min={50} max={400} step={10} value={prefs.pricePerTonne}
-                  onChange={e => setPrefs({...prefs, pricePerTonne: +e.target.value})} style={{width:'100%', accentColor:'var(--color-dark-carbon)'}}/>
+                  onChange={e => {
+                    const p = +e.target.value;
+                    const { computeStrategy } = window.CUR8_DATA;
+                    const s = computeStrategy(prefs);
+                    setPrefs({...prefs, pricePerTonne: p, totalBudget: Math.round(s.tenYrTotalT * p)});
+                  }} style={{width:'100%', accentColor:'var(--color-dark-carbon)'}}/>
               </>
             ) : (
               <>
