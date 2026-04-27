@@ -745,7 +745,16 @@ function computeStrategy(prefs) {
     });
   }
 
-  const validProjects = selectedProjects;
+  // Cap at 6 projects per category so the list stays focused
+  const MAX_PER_CAT = 6;
+  const catCount = { sp: 0, nbs: 0, cdr: 0 };
+  const validProjects = selectedProjects.filter(p => {
+    const cat = (p.cat || '').toLowerCase();
+    if (catCount[cat] == null) return true; // unknown cat — keep
+    if (catCount[cat] >= MAX_PER_CAT) return false;
+    catCount[cat]++;
+    return true;
+  });
 
   // Roadmap: per-method annual allocation for Gantt
   // For each method, distribute its category share across years weighted by price/inverse durability
