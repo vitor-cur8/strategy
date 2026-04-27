@@ -7,6 +7,7 @@
   <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
   <style>
 @font-face {
   font-family: "FK Grotesk";
@@ -1111,6 +1112,35 @@ const COMPANY_DB = [
     ],
     peers: ['Nestle','P&G','Danone','Reckitt'],
     industryTopics: ['agriculture emissions','deforestation','packaging','FMCG supply chain','nature-based solutions'],
+  },
+  {
+    match: ['bcg', 'boston consulting', 'boston consulting group'],
+    orgName: 'Boston Consulting Group', industry: 'Professional Services — Big Four',
+    hq: 'Boston, Massachusetts, USA', employees: 33000, revenue: 'USD 13.5B (FY2024)', founded: 1963,
+    annualEmissions: 1200000,
+    emissionsBreakdown: { scope1: 20000, scope2: 40000, scope3: 1140000 },
+    targetYear: 2030, sbtiAligned: true, includeSuperpollutants: false,
+    pricePerTonne: 140, totalBudget: 25000000,
+    goals: [
+      'Net zero climate impact by 2030 — one of the most aggressive targets in professional services',
+      'SBTi validated: –85% Scope 1+2 by 2025 vs 2018 baseline',
+      'SBTi validated: –58% Scope 3 business travel per FTE by 2030 vs 2018',
+      'CarbonNeutral® certified every year since 2018',
+      '100% renewable electricity for own offices',
+    ],
+    team: [
+      { name:'Christoph Schweizer', role:'CEO', email:'schweizer.christoph@bcg.com' },
+      { name:'Daniel Weise', role:'Chief Sustainability Officer', email:'weise.daniel@bcg.com' },
+      { name:'Tawfik Hammoud', role:'Chief People Officer', email:'hammoud.tawfik@bcg.com' },
+    ],
+    requirements: [
+      'Credits used to neutralise residual emissions on path to net zero — not as offsets to business-as-usual',
+      'High-integrity standards: ICROA-endorsed methodologies required',
+      'Business travel Scope 3 is the dominant category — project geography should reflect global travel routes',
+      'Preference for durable CDR to backstop long-lived Scope 3 commitments',
+    ],
+    peers: ['McKinsey','Bain','Deloitte','Oliver Wyman'],
+    industryTopics: ['business travel emissions','office energy','professional services supply chain','CDR market development'],
   },
   {
     match: ['lego', 'lego group'],
@@ -2599,7 +2629,7 @@ const EMISSIONS_DB = [
   ["EY", 4200000, null, null, null, 2023],
   ["Accenture", 2900000, 38000, 580000, 2280000, 2023],
   ["McKinsey", 1600000, null, null, null, 2023],
-  ["BCG", 1200000, null, null, null, 2023],
+  ["BCG", 1200000, 20000, 40000, 1140000, 2024],
   ["Bain", 500000, null, null, null, 2023],
   ["Capgemini", 2100000, null, null, null, 2023],
   ["Delta Air Lines", 40000000, 35000000, 100000, 4900000, 2023],
@@ -2716,6 +2746,142 @@ function matchEmissions(orgName) {
   return bestScore >= 50 ? best : null;
 }
 
+// ================================================================
+// PDF SUSTAINABILITY REPORT PARSER
+// ================================================================
+
+async function extractTextFromPDF(file, onProgress) {
+  const pdfjsLib = window['pdfjs-dist/build/pdf'];
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+  const arrayBuffer = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  let text = '';
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    text += content.items.map(item => item.str).join(' ') + '\n';
+    if (onProgress) onProgress(Math.round((i / pdf.numPages) * 100));
+  }
+  return text;
+}
+
+function parseSustainabilityReport(text) {
+  // Collapse excess whitespace but preserve line boundaries for context
+  const t = text.replace(/[ \t]+/g, ' ');
+  const result = {};
+
+  // --- helpers ---
+  function num(s) { return parseFloat((s || '').replace(/[,\s]/g, '')); }
+
+  // Detect unit multiplier from surrounding context string
+  function unitMult(ctx) {
+    const c = (ctx || '').toLowerCase();
+    if (/\bmillion\b|\bmt\b|mco2/.test(c))   return 1_000_000;
+    if (/\bthousand\b|\bkt\b|ktco2/.test(c)) return 1_000;
+    return 1;
+  }
+
+  // Try a list of regexes, return first match {raw, value}
+  function tryPatterns(patterns) {
+    for (const re of patterns) {
+      const m = t.match(re);
+      if (!m) continue;
+      const n = num(m[1]);
+      if (isNaN(n) || n <= 0) continue;
+      // grab ~150 chars around match to detect units
+      const idx = t.indexOf(m[0]);
+      const ctx = t.slice(Math.max(0, idx - 120), idx + m[0].length + 80);
+      return { value: n * unitMult(ctx), raw: m[1], ctx };
+    }
+    return null;
+  }
+
+  // --- Emissions ---
+  const s1 = tryPatterns([
+    /[Ss]cope\s*1\s*(?:emissions?|direct)?\s*[\s:–—]\s*([\d,]+)/,
+    /[Tt]otal\s+[Ss]cope\s*1\s*[\s:–—]\s*([\d,]+)/,
+  ]);
+  if (s1) result.scope1 = Math.round(s1.value);
+
+  // Prefer market-based for scope 2
+  const s2 = tryPatterns([
+    /[Ss]cope\s*2\s*\(market[- ]based\)\s*[\s:–—]\s*([\d,]+)/,
+    /[Ss]cope\s*2\s*(?:emissions?|indirect|market)?\s*[\s:–—]\s*([\d,]+)/,
+    /[Tt]otal\s+[Ss]cope\s*2\s*[\s:–—]\s*([\d,]+)/,
+  ]);
+  if (s2) result.scope2 = Math.round(s2.value);
+
+  const s3 = tryPatterns([
+    /[Ss]cope\s*3\s*(?:emissions?|indirect)?\s*[\s:–—]\s*([\d,]+)/,
+    /[Tt]otal\s+[Ss]cope\s*3\s*[\s:–—]\s*([\d,]+)/,
+  ]);
+  if (s3) result.scope3 = Math.round(s3.value);
+
+  const tot = tryPatterns([
+    /[Tt]otal\s+GHG\s+emissions?\s*[\s:–—(]+(?:market[- ]based\))?\s*([\d,]+)/,
+    /[Tt]otal\s+(?:carbon\s+)?emissions?\s*[\s:–—]\s*([\d,]+)/,
+    /GHG\s+emissions?\s*[\s:–—]\s*([\d,]+)/,
+  ]);
+  if (tot) result.totalGhg = Math.round(tot.value);
+
+  // Derive total from scopes if not found directly
+  if (!result.totalGhg && result.scope1 != null && result.scope3 != null) {
+    result.totalGhg = (result.scope1 || 0) + (result.scope2 || 0) + (result.scope3 || 0);
+  }
+
+  // --- Target years ---
+  const nzMatch = t.match(/net[- ]zero(?:\s+(?:emissions?|carbon|climate))?\s+by\s+(20[3-5]\d)/i)
+                || t.match(/(?:achieve|reach)\s+net[- ]zero\s+(?:by\s+)?(20[3-5]\d)/i);
+  if (nzMatch) result.targetYear = parseInt(nzMatch[1]);
+
+  const ntMatch = t.match(/reduce\s+(?:(?:our\s+)?(?:total\s+)?(?:GHG\s+|carbon\s+)?emissions?\s+)?by\s+[\d]+\s*%\s+by\s+(20[3-4]\d)/i)
+                || t.match(/near[- ]term\s+target[^0-9]{0,40}(20[3-4]\d)/i)
+                || t.match(/science[- ]based\s+target[^0-9]{0,60}by\s+(20[3-4]\d)/i);
+  if (ntMatch && !result.nearTermYear) result.nearTermYear = parseInt(ntMatch[1]);
+
+  // --- Certifications ---
+  result.sbtiAligned = /science[- ]based\s+target|SBTi/i.test(t);
+  result.re100       = /\bRE100\b/.test(t);
+  result.carbonNeutral = /carbon\s*neutral(?:ity)?\s+certified|certified\s+carbon\s*neutral/i.test(t);
+
+  // --- Company facts ---
+  const empMatch = t.match(/(\d[\d,]+)\s+(?:full[- ]time\s+)?employees/i)
+                 || t.match(/(?:total\s+)?(?:employee\s+)?headcount[^0-9]{0,20}(\d[\d,]+)/i)
+                 || t.match(/workforce\s+of\s+([\d,]+)/i);
+  if (empMatch) { const n = num(empMatch[1]); if (n > 100 && n < 10_000_000) result.employees = Math.round(n); }
+
+  // Revenue — look for common patterns like "Revenue $12.4B" or "revenue of USD 3.2 billion"
+  const revMatch = t.match(/(?:total\s+)?revenue[^$€£¥\d]{0,25}(?:USD|EUR|GBP|DKK|JPY|AUD|CHF|\$|€|£)?\s*([\d,\.]+)\s*(billion|million|bn\b|m\b|B\b)/i);
+  if (revMatch) {
+    const n = num(revMatch[1]);
+    const mult = /billion|bn|B\b/i.test(revMatch[2]) ? 1e9 : 1e6;
+    result.revenue = `USD ${(n * mult / 1e9).toFixed(1)}B`;
+  }
+
+  // Carbon credits purchased / retired
+  const ccMatch = t.match(/carbon\s+credits?\s+(?:purchased|retired|contracted)[^0-9]{0,30}([\d,]+)/i)
+               || t.match(/([\d,]+)\s+(?:thousand\s+)?t(?:onnes?)?(?:CO2e?)?\s+(?:of\s+)?(?:carbon\s+)?credits?\s+(?:purchased|retired)/i);
+  if (ccMatch) { const n = num(ccMatch[1]); if (n > 0) result.carbonCreditsRetired = Math.round(n); }
+
+  // Goals — collect notable sustainability statements (first 3 unique)
+  const goalPatterns = [
+    /(?:commit(?:ted|ment)|pledge|ambition|aim)\s+to\s+([^.]{20,120}\.)/gi,
+    /our\s+(?:goal|target)\s+(?:is\s+)?to\s+([^.]{20,120}\.)/gi,
+  ];
+  const goals = [];
+  for (const gp of goalPatterns) {
+    let gm;
+    while ((gm = gp.exec(t)) !== null && goals.length < 4) {
+      const g = gm[1].trim().replace(/\s+/g,' ');
+      if (g.length > 25 && !goals.some(x => x.includes(g.slice(0,20)))) goals.push(g);
+    }
+  }
+  if (goals.length) result.extractedGoals = goals;
+
+  return result;
+}
+
 window.CUR8_DATA = { METHODS, CATEGORIES, REGIONS, PROJECTS, REAL_PROJECTS, SP_PROJECTS, SBTI_DB, matchSBTI, NZT_DB, matchNZT, DEFAULT_PREFS, YEARS, TEN_YEARS, computeStrategy, COMPANY_DB, matchCompany, enrichPrefs, generateNews, PEER_PROFILES_DB, EMISSIONS_DB, matchEmissions };
 
 </script>
@@ -2800,12 +2966,35 @@ function StepAccount({ prefs, setPrefs }) {
   const [matchedNZT, setMatchedNZT]   = React.useState(null); // Net Zero Tracker
   const [matchedSBTI, setMatchedSBTI] = React.useState(null); // SBTi
   const [dismissed, setDismissed]     = React.useState(null); // name that user dismissed
+  const [showUpload, setShowUpload]   = React.useState(false);
 
   const dismiss = () => {
     const name = prefs.orgName;
     setMatched(null); setMatchedNZT(null); setMatchedSBTI(null);
     setDismissed(name);
     setPrefs({ ...DEFAULT_PREFS, orgName: name });
+  };
+
+  const handleReportParsed = (data) => {
+    const update = { ...prefs };
+    if (data.totalGhg)   update.annualEmissions = data.totalGhg;
+    if (data.scope1 != null || data.scope2 != null || data.scope3 != null) {
+      update.emissionsBreakdown = {
+        scope1: data.scope1 ?? null,
+        scope2: data.scope2 ?? null,
+        scope3: data.scope3 ?? null,
+      };
+    }
+    if (data.targetYear)  update.targetYear = data.targetYear;
+    if (data.sbtiAligned) update.sbtiAligned = true;
+    if (data.employees)   update.employees = data.employees;
+    if (data.revenue)     update.revenue = data.revenue;
+    if (data.extractedGoals && data.extractedGoals.length) {
+      update.goals = [...(update.goals || []), ...data.extractedGoals].slice(0, 6);
+    }
+    update._reportParsed = true;
+    setPrefs(update);
+    setShowUpload(false);
   };
 
   const handleOrgBlur = (name) => {
@@ -2914,7 +3103,47 @@ function StepAccount({ prefs, setPrefs }) {
             <DismissBtn light/>
           </div>
         )}
-        <div style={{display:'flex', gap: 20, marginTop: matched ? 16 : 40}}>
+        {/* Report upload — shown when: no match found, OR user dismissed, OR after any match as enhancement */}
+        {prefs.orgName && !showUpload && (
+          <div style={{marginTop: matched || matchedNZT || matchedSBTI ? 12 : 24}}>
+            {prefs._reportParsed ? (
+              <div style={{display:'flex', alignItems:'center', gap:8, fontSize:12, color:'var(--color-earth)'}}>
+                <span style={{color:'var(--score-5)', fontWeight:600}}>✓</span>
+                Emissions and targets pre-filled from your report.
+                <button onClick={() => { setShowUpload(true); }} style={{background:'none', border:'none', cursor:'pointer',
+                  color:'var(--color-umber)', fontFamily:'var(--font-mono)', fontSize:10, letterSpacing:'.06em',
+                  textDecoration:'underline', padding:0}}>Re-upload</button>
+              </div>
+            ) : (
+              <button onClick={() => setShowUpload(true)}
+                style={{background:'none', border:'1px solid var(--color-border)', borderRadius:6,
+                  padding:'8px 14px', cursor:'pointer', fontFamily:'var(--font-mono)', fontSize:10,
+                  letterSpacing:'.08em', textTransform:'uppercase', color:'var(--color-earth)',
+                  display:'flex', alignItems:'center', gap:8, transition:'border-color .15s'}}
+                onMouseEnter={e => e.currentTarget.style.borderColor='var(--color-dark-carbon)'}
+                onMouseLeave={e => e.currentTarget.style.borderColor='var(--color-border)'}>
+                <span>📄</span>
+                {matched || matchedNZT || matchedSBTI
+                  ? 'Enhance with your sustainability report'
+                  : 'Can\'t find your company? Upload your report'}
+              </button>
+            )}
+          </div>
+        )}
+
+        {showUpload && (
+          <div style={{marginTop: 16}}>
+            <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10}}>
+              <span style={{fontFamily:'var(--font-mono)', fontSize:10, letterSpacing:'.1em',
+                textTransform:'uppercase', color:'var(--color-umber)'}}>Sustainability report</span>
+              <button onClick={() => setShowUpload(false)} style={{background:'none', border:'none',
+                cursor:'pointer', fontSize:14, color:'var(--color-earth)', padding:'2px 6px'}}>✕</button>
+            </div>
+            <ReportUploadZone onParsed={handleReportParsed}/>
+          </div>
+        )}
+
+        <div style={{display:'flex', gap: 20, marginTop: 40}}>
           <Stat n="200+" l="Vetted projects"/>
           <Stat n="8" l="Removal methods"/>
           <Stat n="$120M" l="Credits brokered"/>
@@ -2957,6 +3186,166 @@ function StepAccount({ prefs, setPrefs }) {
       </Card>
     </div>
   );
+}
+
+// ---- Report Upload Zone ----------------------------------------
+function ReportUploadZone({ onParsed }) {
+  const [phase, setPhase]       = React.useState('idle'); // idle|loading|done|error
+  const [progress, setProgress] = React.useState(0);
+  const [extracted, setExtracted] = React.useState(null);
+  const [filename, setFilename]   = React.useState('');
+  const inputRef = React.useRef();
+  const [drag, setDrag] = React.useState(false);
+
+  const process = async (file) => {
+    if (!file || file.type !== 'application/pdf') {
+      setPhase('error'); return;
+    }
+    setFilename(file.name);
+    setPhase('loading'); setProgress(0);
+    try {
+      const text = await extractTextFromPDF(file, setProgress);
+      const data = parseSustainabilityReport(text);
+      setExtracted(data);
+      setPhase('done');
+    } catch(e) {
+      console.error(e); setPhase('error');
+    }
+  };
+
+  const apply = () => {
+    if (extracted) onParsed(extracted);
+  };
+
+  const reset = () => { setPhase('idle'); setExtracted(null); setProgress(0); };
+
+  // Friendly formatted number
+  const fmtE = n => n >= 1_000_000 ? `${(n/1_000_000).toFixed(2)}M` : n >= 1_000 ? `${(n/1_000).toFixed(0)}k` : String(n);
+
+  const dropProps = {
+    onDragOver: e => { e.preventDefault(); setDrag(true); },
+    onDragLeave: () => setDrag(false),
+    onDrop: e => { e.preventDefault(); setDrag(false); process(e.dataTransfer.files[0]); },
+  };
+
+  const zoneBase = {
+    borderRadius: 8, padding: '24px 20px', textAlign: 'center', cursor: 'pointer',
+    border: `1.5px dashed`, transition: 'all .15s',
+  };
+
+  if (phase === 'idle') return (
+    <div {...dropProps} onClick={() => inputRef.current.click()}
+      style={{...zoneBase, borderColor: drag ? 'var(--color-dark-carbon)' : 'var(--color-border)',
+        background: drag ? 'var(--color-air)' : 'transparent'}}>
+      <input ref={inputRef} type="file" accept=".pdf" style={{display:'none'}}
+        onChange={e => process(e.target.files[0])}/>
+      <div style={{fontSize: 22, marginBottom: 8}}>📄</div>
+      <div style={{fontSize: 13, fontWeight: 500, marginBottom: 4}}>
+        Drop your sustainability report here
+      </div>
+      <div style={{fontSize: 11, color: 'var(--color-earth)'}}>
+        PDF · We extract emissions, targets and commitments locally — nothing is uploaded to a server
+      </div>
+    </div>
+  );
+
+  if (phase === 'loading') return (
+    <div style={{...zoneBase, borderColor: 'var(--color-border)', cursor:'default'}}>
+      <div style={{fontSize: 13, fontWeight: 500, marginBottom: 12}}>Reading {filename}…</div>
+      <div style={{height: 4, background: 'var(--color-border)', borderRadius: 2, overflow:'hidden'}}>
+        <div style={{height:'100%', width:`${progress}%`, background:'var(--color-dark-carbon)', transition:'width .2s', borderRadius: 2}}/>
+      </div>
+      <div style={{fontSize: 11, color:'var(--color-earth)', marginTop: 8}}>{progress}% of pages extracted</div>
+    </div>
+  );
+
+  if (phase === 'error') return (
+    <div style={{...zoneBase, borderColor:'var(--color-red-accent)', cursor:'default'}}>
+      <div style={{fontSize: 13, color:'var(--color-red-accent)', marginBottom: 8}}>
+        Couldn't read this PDF — try a text-based (not scanned) report.
+      </div>
+      <button onClick={reset} style={{fontFamily:'var(--font-mono)', fontSize:10, cursor:'pointer',
+        border:'1px solid var(--color-border)', borderRadius:4, padding:'4px 10px', background:'none'}}>
+        Try another file
+      </button>
+    </div>
+  );
+
+  if (phase === 'done') {
+    const e = extracted;
+    const rows = [
+      e.totalGhg       && { label:'Total GHG',  value:`${fmtE(e.totalGhg)} tCO₂e` },
+      e.scope1 != null && { label:'Scope 1',    value:`${fmtE(e.scope1)} tCO₂e` },
+      e.scope2 != null && { label:'Scope 2',    value:`${fmtE(e.scope2)} tCO₂e` },
+      e.scope3 != null && { label:'Scope 3',    value:`${fmtE(e.scope3)} tCO₂e` },
+      e.targetYear     && { label:'Net-zero target', value: e.targetYear },
+      e.nearTermYear   && { label:'Near-term target', value: e.nearTermYear },
+      e.employees      && { label:'Employees',  value: e.employees.toLocaleString('en-GB') },
+      e.revenue        && { label:'Revenue',    value: e.revenue },
+      e.sbtiAligned    && { label:'SBTi',       value:'Validated target found' },
+      e.re100          && { label:'RE100',       value:'Member' },
+      e.carbonNeutral  && { label:'Carbon Neutral', value:'Certified' },
+    ].filter(Boolean);
+
+    const hasData = rows.length > 0;
+
+    return (
+      <div style={{border:'1px solid var(--color-border)', borderRadius:8, overflow:'hidden'}}>
+        <div style={{padding:'12px 16px', background:'var(--color-dark-carbon)', color:'#fff',
+          display:'flex', alignItems:'center', justifyContent:'space-between'}}>
+          <div>
+            <div style={{fontFamily:'var(--font-mono)', fontSize:9, letterSpacing:'.12em', textTransform:'uppercase',
+              color:'var(--color-umber-tint)', marginBottom:2}}>
+              Report parsed · {filename}
+            </div>
+            <div style={{fontSize: 13, fontWeight: 500}}>
+              {hasData ? `${rows.length} field${rows.length > 1 ? 's' : ''} extracted` : 'No structured data found'}
+            </div>
+          </div>
+          <button onClick={reset} style={{background:'none', border:'1px solid rgba(255,255,255,0.25)',
+            borderRadius:4, color:'rgba(255,255,255,0.6)', fontFamily:'var(--font-mono)', fontSize:9,
+            letterSpacing:'.08em', textTransform:'uppercase', padding:'4px 8px', cursor:'pointer'}}>
+            Try another
+          </button>
+        </div>
+        {hasData ? (
+          <>
+            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:0}}>
+              {rows.map((r, i) => (
+                <div key={i} style={{padding:'9px 16px', borderBottom:'1px solid var(--color-border)',
+                  borderRight: i % 2 === 0 ? '1px solid var(--color-border)' : 'none',
+                  display:'flex', justifyContent:'space-between', alignItems:'baseline', gap:8}}>
+                  <span style={{fontSize:11, color:'var(--color-earth)', fontFamily:'var(--font-mono)', letterSpacing:'.04em'}}>{r.label}</span>
+                  <span style={{fontSize:12, fontWeight:500}}>{r.value}</span>
+                </div>
+              ))}
+            </div>
+            {e.extractedGoals && e.extractedGoals.length > 0 && (
+              <div style={{padding:'10px 16px', borderBottom:'1px solid var(--color-border)'}}>
+                <div style={{fontSize:10, fontFamily:'var(--font-mono)', letterSpacing:'.08em',
+                  color:'var(--color-umber)', textTransform:'uppercase', marginBottom:6}}>Goals detected</div>
+                {e.extractedGoals.slice(0,3).map((g,i) => (
+                  <div key={i} style={{fontSize:11, color:'var(--color-earth)', marginBottom:3, lineHeight:1.4}}>· {g}</div>
+                ))}
+              </div>
+            )}
+            <div style={{padding:'12px 16px', display:'flex', justifyContent:'flex-end'}}>
+              <button onClick={apply}
+                style={{background:'var(--color-dark-carbon)', color:'#fff', border:'none', borderRadius:6,
+                  padding:'9px 20px', fontSize:13, fontWeight:500, cursor:'pointer', fontFamily:'var(--font-sans)'}}>
+                Apply to strategy →
+              </button>
+            </div>
+          </>
+        ) : (
+          <div style={{padding:'20px 16px', fontSize:12, color:'var(--color-earth)'}}>
+            The PDF was read but no emissions or target figures were detected. This sometimes happens with scanned or image-only PDFs.
+            Try copying text from the report manually or use a text-based PDF.
+          </div>
+        )}
+      </div>
+    );
+  }
 }
 
 function Stat({ n, l }) {
