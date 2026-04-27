@@ -3270,20 +3270,52 @@ function similarProjects(p) {
   return ranked;
 }
 
-// ---- Score dimensions (derived, deterministic from score) ---
+// ---- CUR8 Quality Framework v4.0 — verified project scores ----
+// Five dimensions, each 0–10. Source: internal CUR8 diligence reports.
+const CUR8_SCORES = {
+  'Project Jacaranda': { impact: 9.2, delivery: 6.6, integrity: 7.6, beyondCarbon: 5.7, future: 6.2 },
+  'CommuniTree':       { impact: 6.1, delivery: 6.9, integrity: 7.8, beyondCarbon: 8.0, future: 6.2 },
+  'InPlanet':          { impact: 7.3, delivery: 6.8, integrity: 8.8, beyondCarbon: 5.4, future: 5.7 },
+};
+
+function lookupCUR8Score(name) {
+  if (!name) return null;
+  const n = name.toLowerCase();
+  for (const [key, s] of Object.entries(CUR8_SCORES)) {
+    if (n.includes(key.toLowerCase())) return s;
+  }
+  return null;
+}
+
+// ---- Score dimensions (CUR8 Quality Framework v4.0) -----------
 function scoreDims(p) {
-  const base = p.score;
-  // Deterministic hash-ish offsets so each project feels distinct but stable
-  const h = [...p.id].reduce((a,c) => a + c.charCodeAt(0), 0);
-  const jit = (n) => ((h * (n+1)) % 17) / 17 * 1.8 - 0.9; // -0.9..+0.9
-  const clamp = (v) => Math.max(2, Math.min(10, v));
+  const real = lookupCUR8Score(p.name || '');
+
+  if (real) {
+    return [
+      { key:'impact',       label:'Impact',           v: real.impact,       verified: true, desc:'Permanence, efficiency, additionality, leakage & accounting' },
+      { key:'delivery',     label:'Delivery Risk',    v: real.delivery,     verified: true, desc:'Execution, financial, physical, regulatory & legal risk' },
+      { key:'integrity',    label:'Integrity',        v: real.integrity,    verified: true, desc:'Accreditation, carbon accounting, MRV & verification quality' },
+      { key:'beyondCarbon', label:'Beyond Carbon',    v: real.beyondCarbon, verified: true, desc:'Biodiversity, social justice & brand risk' },
+      { key:'future',       label:'Future Potential', v: real.future,       verified: true, desc:'Method & company scalability, regulatory path & footprint' },
+    ];
+  }
+
+  // Heuristic estimates for unscored projects (category- and rank-informed)
+  const base = p.score || 7.0;
+  const cat = window.CUR8_DATA?.METHODS?.[p.method]?.cat || '';
+  const h = [...(p.id || p.name || 'x')].reduce((a,c) => a + c.charCodeAt(0), 0);
+  const jit = (n) => ((h * (n + 1)) % 17) / 17 * 1.2 - 0.6;
+  const clamp = (v) => Math.max(2, Math.min(10, +v.toFixed(1)));
+  const impBoost  = cat === 'CDR' ? 0.5  : cat === 'SP'  ? -0.3 : 0;
+  const coBoost   = cat === 'NBS' ? 1.0  : cat === 'SP'  ? -0.4 : 0;
+  const futBoost  = cat === 'CDR' ? 0.8  : cat === 'NBS' ?  0.3 : -0.2;
   return [
-    { key:'perm',  label:'Permanence',   v: clamp(base + jit(1) + 0.3), desc:'Expected carbon storage duration' },
-    { key:'addl',  label:'Additionality',v: clamp(base + jit(2) - 0.2), desc:'Counterfactual / would-not-happen-otherwise' },
-    { key:'meas',  label:'Measurement',  v: clamp(base + jit(3) + 0.1), desc:'MRV rigour & data availability' },
-    { key:'leak',  label:'Leakage',      v: clamp(base + jit(4) - 0.4), desc:'Displacement of emissions elsewhere' },
-    { key:'co',    label:'Co-benefits',  v: clamp(base + jit(5) + 0.5), desc:'Biodiversity, community, economic' },
-    { key:'risk',  label:'Delivery risk',v: clamp(base + jit(6) - 0.1), desc:'Developer track record & project maturity' },
+    { key:'impact',       label:'Impact',           v: clamp(base + impBoost + jit(1)), verified: false, desc:'Permanence, efficiency, additionality, leakage & accounting' },
+    { key:'delivery',     label:'Delivery Risk',    v: clamp(base + jit(2)),            verified: false, desc:'Execution, financial, physical, regulatory & legal risk' },
+    { key:'integrity',    label:'Integrity',        v: clamp(base + jit(3) + 0.3),      verified: false, desc:'Accreditation, carbon accounting, MRV & verification quality' },
+    { key:'beyondCarbon', label:'Beyond Carbon',    v: clamp(base + coBoost + jit(4)),  verified: false, desc:'Biodiversity, social justice & brand risk' },
+    { key:'future',       label:'Future Potential', v: clamp(base + futBoost + jit(5)), verified: false, desc:'Method & company scalability, regulatory path & footprint' },
   ];
 }
 
@@ -3352,22 +3384,44 @@ function ProjectDetail({ project, onBack, onOpenProject }) {
             </div>
           </Card>
 
-          {/* Integrity score */}
-          <Card padding={28}>
-            <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom: 24}}>
-              <div>
-                <Eyebrow style={{marginBottom: 8}}>CUR8 integrity score</Eyebrow>
-                <div style={{fontSize: 18, fontWeight: 500}}>Six-dimension diligence</div>
-                <div style={{fontSize: 13, color:'var(--color-earth)', marginTop: 2}}>
-                  Weighted blend across permanence, additionality, measurement, leakage, co-benefits, delivery risk.
+          {/* CUR8 Quality Score */}
+          {(() => {
+            const isVerified = dims[0]?.verified;
+            const overallScore = isVerified
+              ? +(dims.reduce((s,d) => s + d.v, 0) / dims.length).toFixed(1)
+              : project.score;
+            return (
+              <Card padding={28}>
+                <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom: 24}}>
+                  <div>
+                    <div style={{display:'flex', alignItems:'center', gap: 10, marginBottom: 8}}>
+                      <Eyebrow>CUR8 quality score</Eyebrow>
+                      {isVerified
+                        ? <span style={{fontFamily:'var(--font-mono)', fontSize: 9, letterSpacing:'.1em', textTransform:'uppercase',
+                            padding:'2px 8px', borderRadius:999, background:'var(--color-dark-carbon)', color:'#fff'}}>
+                            Verified · v4.0
+                          </span>
+                        : <span style={{fontFamily:'var(--font-mono)', fontSize: 9, letterSpacing:'.1em', textTransform:'uppercase',
+                            padding:'2px 8px', borderRadius:999, background:'var(--color-air-base)', color:'var(--color-earth)'}}>
+                            Estimated
+                          </span>
+                      }
+                    </div>
+                    <div style={{fontSize: 18, fontWeight: 500}}>Five-dimension framework</div>
+                    <div style={{fontSize: 13, color:'var(--color-earth)', marginTop: 2}}>
+                      {isVerified
+                        ? 'Scored by CUR8 analysts using the Quality Framework v4.0.'
+                        : 'Estimated from method category, registry and diligence rank.'}
+                    </div>
+                  </div>
+                  <ScoreRing score={overallScore}/>
                 </div>
-              </div>
-              <ScoreRing score={project.score}/>
-            </div>
-            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', columnGap: 40, rowGap: 18}}>
-              {dims.map(d => <ScoreDim key={d.key} dim={d}/>)}
-            </div>
-          </Card>
+                <div style={{display:'flex', flexDirection:'column', gap: 18}}>
+                  {dims.map(d => <ScoreDim key={d.key} dim={d}/>)}
+                </div>
+              </Card>
+            );
+          })()}
 
           {/* Methodology */}
           <Card padding={28}>
