@@ -4,6 +4,7 @@
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
   <title>CUR8 Strategy Navigator</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' fill='%23000'/%3E%3Ctext x='32' y='47' text-anchor='middle' font-family='Georgia%2C serif' font-size='46' font-weight='400' fill='%23fff'%3EC%3C/text%3E%3C/svg%3E"/>
   <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -4972,7 +4973,7 @@ function Dashboard({ prefs, setPrefs, onBack }) {
       ) : (
         <div style={{padding: '32px 32px 80px', maxWidth: 1440, margin:'0 auto'}}>
           {view === 'strategy'      && <StrategyView prefs={prefs} strat={strat}/>}
-          {view === 'roadmap'       && <RoadmapView prefs={prefs} strat={strat}/>}
+          {view === 'roadmap'       && <RoadmapView prefs={prefs} strat={strat} setPrefs={setPrefs}/>}
           {view === 'projects'      && <ProjectsView prefs={prefs} strat={strat} onOpenProject={openProject}/>}
           {view === 'company'       && <CompanyView prefs={prefs} setPrefs={setPrefs} strat={strat}/>}
           {view === 'business-case' && <BusinessCaseView prefs={prefs} strat={strat}/>}
@@ -5768,15 +5769,29 @@ function PriceLine({ data }) {
 }
 
 // ================ ROADMAP VIEW ==============================
-function RoadmapView({ prefs, strat }) {
+function RoadmapView({ prefs, strat, setPrefs }) {
   const { CATEGORIES } = window.CUR8_DATA;
   const years = window.CUR8_DATA.YEARS;
-  // Find global max annual vol for bar scale
-  const maxV = Math.max(...strat.roadmap.flatMap(r => r.annualVols)) || 1;
+  const [activeCat, setActiveCat] = React.useState('all');
+
+  const allRows = strat.roadmap;
+  const maxV = Math.max(...allRows.flatMap(r => r.annualVols)) || 1;
+
+  const catTotals = { SP: 0, NBS: 0, CDR: 0 };
+  allRows.forEach(r => { catTotals[r.method.cat] = (catTotals[r.method.cat] || 0) + r.total; });
+
+  const tabs = [
+    { k: 'all', l: 'All methods' },
+    { k: 'SP',  l: 'Superpollutants' },
+    { k: 'NBS', l: 'Nature-based' },
+    { k: 'CDR', l: 'Durable CDR' },
+  ];
+
+  const visibleCats = activeCat === 'all' ? ['SP','NBS','CDR'] : [activeCat];
 
   return (
     <div>
-      <div style={{marginBottom: 32}}>
+      <div style={{marginBottom: 24}}>
         <Eyebrow style={{marginBottom: 12}}>Long-term roadmap · {years[0]} → {years[years.length-1]}</Eyebrow>
         <h1 style={{fontSize: 40, fontWeight: 500, letterSpacing:'-0.02em', lineHeight: 1.05, maxWidth: 720, marginBottom: 8}}>
           Method-level delivery schedule
@@ -5784,6 +5799,31 @@ function RoadmapView({ prefs, strat }) {
         <p style={{fontSize: 14, color:'var(--color-earth)', maxWidth: 640}}>
           Each row is a removal method. Cell intensity shows annual volume (tCO₂e). Hover for details.
         </p>
+      </div>
+
+      {/* Category tabs */}
+      <div style={{display:'flex', gap: 2, background:'var(--color-air-light)', borderRadius: 6, padding: 3, marginBottom: 20, width:'fit-content'}}>
+        {tabs.map(t => {
+          const hasRows = t.k === 'all' ? allRows.length > 0 : allRows.some(r => r.method.cat === t.k);
+          const spExcluded = t.k === 'SP' && !prefs.includeSuperpollutants;
+          return (
+            <button key={t.k} onClick={() => setActiveCat(t.k)} style={{
+              padding: '7px 16px', borderRadius: 4, border: 'none', cursor: 'pointer',
+              fontFamily: 'var(--font-mono)', fontSize: 10, letterSpacing: '.08em', textTransform: 'uppercase',
+              background: activeCat === t.k ? 'var(--color-dark-carbon)' : 'transparent',
+              color: activeCat === t.k ? '#fff' : spExcluded ? 'var(--color-air-tint)' : 'var(--color-earth)',
+              transition: 'all .15s', whiteSpace: 'nowrap',
+              opacity: !hasRows && !spExcluded && t.k !== 'all' ? 0.4 : 1,
+            }}>
+              {t.l}
+              {t.k !== 'all' && catTotals[t.k] > 0 && (
+                <span style={{marginLeft: 6, opacity: 0.6}}>
+                  {fmt.k(Math.round(catTotals[t.k]))}t
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       <Card padding={0}>
@@ -5799,9 +5839,68 @@ function RoadmapView({ prefs, strat }) {
         </div>
 
         {/* rows grouped by cat */}
-        {['SP','NBS','CDR'].map(cat => {
-          const rows = strat.roadmap.filter(r => r.method.cat === cat);
-          if (rows.length === 0) return null;
+        {visibleCats.map(cat => {
+          const rows = allRows.filter(r => r.method.cat === cat);
+
+          if (rows.length === 0) {
+            const catMeta = CATEGORIES[cat];
+            const catLabel = catMeta ? catMeta.label : cat;
+
+            // SP excluded — actionable CTA
+            if (cat === 'SP' && !prefs.includeSuperpollutants) {
+              return (
+                <div key={cat}>
+                  <div style={{display:'grid', gridTemplateColumns:`240px 1fr`, background:'var(--color-air)', borderBottom:'1px solid var(--color-border)', padding:'10px 20px'}}>
+                    <div style={{display:'flex', alignItems:'center', gap: 10}}>
+                      <span style={{width: 8, height: 8, borderRadius: 2, background: `var(--cat-${cat.toLowerCase()})`}}/>
+                      <span style={{fontFamily:'var(--font-mono)', fontSize: 11, fontWeight: 500, letterSpacing:'.08em'}}>{catLabel.toUpperCase()}</span>
+                    </div>
+                    <div style={{fontSize: 12, color:'var(--color-earth)'}}>{catMeta && catMeta.desc}</div>
+                  </div>
+                  <div style={{padding: '28px 24px', textAlign: 'center', borderBottom: '1px solid var(--color-border)', background: 'var(--color-air-light)'}}>
+                    <div style={{fontSize: 13, fontWeight: 500, marginBottom: 6}}>Not included in this strategy</div>
+                    <div style={{fontSize: 12, color: 'var(--color-earth)', marginBottom: 14}}>
+                      Enable the superpollutants toggle in your framework settings to add Phase 1 methane and ODS methods.
+                    </div>
+                    {setPrefs && (
+                      <button onClick={() => setPrefs({...prefs, includeSuperpollutants: true})}
+                        style={{fontFamily:'var(--font-mono)', fontSize:10, letterSpacing:'.08em', textTransform:'uppercase',
+                          padding:'7px 16px', borderRadius:4, border:'1px solid var(--color-dark-carbon)',
+                          background:'transparent', cursor:'pointer'}}>
+                        Enable superpollutants
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            }
+
+            // Any other category with no rows
+            const emptyHints = {
+              SP: 'No superpollutant methods available for your selected regions.',
+              NBS: 'No nature-based methods matched your current region and preference settings.',
+              CDR: 'No durable CDR methods matched your current settings.',
+            };
+            return (
+              <div key={cat}>
+                <div style={{display:'grid', gridTemplateColumns:`240px 1fr`, background:'var(--color-air)', borderBottom:'1px solid var(--color-border)', padding:'10px 20px'}}>
+                  <div style={{display:'flex', alignItems:'center', gap: 10}}>
+                    <span style={{width: 8, height: 8, borderRadius: 2, background: `var(--cat-${cat.toLowerCase()})`}}/>
+                    <span style={{fontFamily:'var(--font-mono)', fontSize: 11, fontWeight: 500, letterSpacing:'.08em'}}>{catLabel.toUpperCase()}</span>
+                  </div>
+                  <div style={{fontSize: 12, color:'var(--color-earth)'}}>{catMeta && catMeta.desc}</div>
+                </div>
+                <div style={{padding: '28px 24px', textAlign: 'center', borderBottom: '1px solid var(--color-border)', background: 'var(--color-air-light)'}}>
+                  <div style={{fontSize: 28, marginBottom: 8}}>—</div>
+                  <div style={{fontSize: 13, fontWeight: 500, marginBottom: 4}}>No methods scheduled</div>
+                  <div style={{fontSize: 12, color: 'var(--color-earth)'}}>
+                    {emptyHints[cat] || 'Adjust your preferences to add methods in this category.'}
+                  </div>
+                </div>
+              </div>
+            );
+          }
+
           return (
             <React.Fragment key={cat}>
               <div style={{display:'grid', gridTemplateColumns:`240px 1fr`, background:'var(--color-air)', borderBottom:'1px solid var(--color-border)', padding:'10px 20px'}}>
