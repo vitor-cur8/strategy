@@ -116,10 +116,10 @@
   --action-ghost-text:     var(--color-dark-carbon);
 
   /* ========== CARBON METHOD / CATEGORY COLOURS ========== */
-  --cat-sp:  #9EE2FF;   /* Superpollutants — water-accent */
+  --cat-sp:  #5BBDD6;   /* Superpollutants — medium teal, visible on white */
   --cat-nbs: #B5B163;   /* NBS — earth-tint */
   --cat-cdr: #373F29;   /* CDR — dark-moss */
-  --cat-sp-light:  #D6F4FF;
+  --cat-sp-light:  #C5EAF5;
   --cat-nbs-light: #E8E7B5;
   --cat-cdr-light: #8A9270;
 
@@ -402,7 +402,7 @@ const METHODS = {
 };
 
 const CATEGORIES = {
-  SP:  { key: 'SP',  label: 'Superpollutants',       short: 'Super',  color: '#2B5A6B',  desc: 'Immediate avoided warming — methane, ODS, HFCs.' },
+  SP:  { key: 'SP',  label: 'Superpollutants',       short: 'Super',  color: 'var(--cat-sp)',  desc: 'Immediate avoided warming — methane, ODS, HFCs.' },
   NBS: { key: 'NBS', label: 'Nature-based removals', short: 'NBS',    color: 'var(--cat-nbs)', desc: 'Forests, mangroves, regen soil. Bridging durability.' },
   CDR: { key: 'CDR', label: 'Durable CDR',           short: 'CDR',    color: 'var(--cat-cdr)', desc: 'Permanent removals — biochar, ERW, DAC, ocean, BECCS.' },
 };
@@ -2769,7 +2769,6 @@ function StepGoals({ prefs, setPrefs }) {
   const TARGET_YEARS = [2030, 2035, 2040, 2045, 2050];
   const SUGGESTED_GOALS = [
     'SBTi Net-Zero Standard 2.0',
-    'Address superpollutants',
     'Biodiversity co-benefits',
     'Geographic diversity',
     'Support novel CDR methods',
@@ -4171,7 +4170,7 @@ function EmissionsBars({ data }) {
   const items = [
     { k:'Scope 1', v:s1, color:'var(--cat-cdr)',  desc:'Direct emissions' },
     { k:'Scope 2', v:s2, color:'var(--cat-nbs)',  desc:'Purchased energy' },
-    { k:'Scope 3', v:s3, color:'#2B5A6B',   desc:'Value chain' },
+    { k:'Scope 3', v:s3, color:'var(--cat-sp)',   desc:'Value chain' },
   ];
 
   // Stacked horizontal bar
@@ -4410,7 +4409,7 @@ function StrategyView({ prefs, strat }) {
           phase="01"
           years="2026–2031"
           title="Superpollutant leadership"
-          accent="#2B5A6B"
+          accent="var(--cat-sp)"
           desc="Methane, ODS and HFC credits deliver rapid avoided warming while durable CDR scales. Phase 1 is your compliance floor under SBTi NZ 2.0."
           stat={`${fmt.k(strat.spTotal)} tCO₂e`}
           statLabel="10-yr SP volume"
@@ -4514,7 +4513,7 @@ function PhaseCard({ phase, years, title, accent, desc, stat, statLabel, active=
 function PhaseLegend() {
   return (
     <div style={{display:'flex', gap: 20, marginTop: 20, paddingTop: 16, borderTop:'1px solid var(--color-border)', flexWrap:'wrap'}}>
-      <LegendDot c="#2B5A6B"  label="Superpollutants" sub="Phase 1 · 2026-31"/>
+      <LegendDot c="var(--cat-sp)"  label="Superpollutants" sub="Phase 1 · 2026-31"/>
       <LegendDot c="var(--cat-nbs)" label="Nature-based"    sub="Phase 2 · 2029-38"/>
       <LegendDot c="var(--cat-cdr)" label="Durable CDR"     sub="Phase 3 · 2032-50"/>
     </div>
@@ -4799,8 +4798,6 @@ function catColor(cat, mode) {
   if (mode === 'mono') {
     return cat === 'SP' ? '#D6D3CE' : cat === 'NBS' ? '#8F8A80' : '#2B271F';
   }
-  // SP uses dark water (#2B5A6B) for chart visibility — --cat-sp (#9EE2FF) is too light on white
-  if (cat === 'SP' || cat === 'sp') return '#2B5A6B';
   return `var(--cat-${cat.toLowerCase()})`;
 }
 
@@ -5856,7 +5853,7 @@ function BCSummary({ prefs, strat, totalBudget, annualBudget, years }) {
 
 function BCMiniMix() {
   const items = [
-    { label:'Superpollutants (SP)', pct: 35, color:'#2B5A6B' },
+    { label:'Superpollutants (SP)', pct: 35, color:'var(--cat-sp)' },
     { label:'Nature-Based (NBS)', pct: 40, color:'var(--cat-nbs)' },
     { label:'Carbon Removal (CDR)', pct: 25, color:'var(--cat-cdr)' },
   ];
@@ -6203,7 +6200,7 @@ function BCPeers({ prefs }) {
             <p style={{fontSize:13, color:'var(--color-earth)', lineHeight:1.65}}>{peer.gap}</p>
           </div>
           <div style={{display:'flex', height:6, borderRadius:3, overflow:'hidden', marginTop:12}}>
-            <div style={{flex:peer.mix.sp, background:'#2B5A6B'}}/>
+            <div style={{flex:peer.mix.sp, background:'var(--cat-sp)'}}/>
             <div style={{flex:peer.mix.nbs, background:'var(--cat-nbs)'}}/>
             <div style={{flex:peer.mix.cdr, background:'var(--cat-cdr)'}}/>
           </div>
@@ -6276,7 +6273,7 @@ function BCAsk({ prefs, strat, totalBudget, annualBudget, years }) {
               const base = padT + innerH;
               return (
                 <g key={i}>
-                  <rect x={bx} y={base - spH} width={bw} height={spH} fill="#2B5A6B"/>
+                  <rect x={bx} y={base - spH} width={bw} height={spH} fill="var(--cat-sp)"/>
                   <rect x={bx} y={base - spH - nbsH} width={bw} height={nbsH} fill="var(--cat-nbs)"/>
                   <rect x={bx} y={base - spH - nbsH - cdrH} width={bw} height={cdrH} fill="var(--cat-cdr)"/>
                   <text x={bx + bw/2} y={H - 6} textAnchor="middle" fontSize="8" fill="var(--color-earth)">{d.yr}</text>
