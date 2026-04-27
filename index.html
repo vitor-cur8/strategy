@@ -641,12 +641,14 @@ function computeStrategy(prefs) {
     return { SP: sp/tot, NBS: nbs/tot, CDR: cdr/tot };
   };
 
-  // Price per tonne evolves: SP stable, NBS mild rise, CDR drops as scales
+  // Price per tonne evolves: SP stable, NBS mild rise, CDR drops as scales.
+  // Scaled proportionally so the blended portfolio avg tracks prefs.pricePerTonne.
+  const priceScale = (prefs.pricePerTonne || 150) / 150;
   const priceCat = (y, cat) => {
     const t = (y - startYr) / 24;
-    if (cat === 'SP')  return 100 + t * 30;
-    if (cat === 'NBS') return 55 + t * 45;
-    if (cat === 'CDR') return 350 - t * 180; // $350 → $170
+    if (cat === 'SP')  return (100 + t * 30)  * priceScale;
+    if (cat === 'NBS') return (55  + t * 45)  * priceScale;
+    if (cat === 'CDR') return (350 - t * 180) * priceScale; // $350 → $170 at default
     return 0;
   };
 
