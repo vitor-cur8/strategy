@@ -3637,10 +3637,15 @@ function ScoreRing({ score }) {
   const R = 40, cx = 46, cy = 46;
   const circ = 2 * Math.PI * R;
   const off = circ * (1 - score / 10);
+  const ringColor = score >= 8 ? 'var(--score-5)'
+                  : score >= 6 ? 'var(--score-4)'
+                  : score >= 4 ? 'var(--score-3)'
+                  : score >= 2 ? 'var(--score-2)'
+                  :               'var(--score-1)';
   return (
     <svg width="92" height="92" viewBox="0 0 92 92">
-      <circle cx={cx} cy={cy} r={R} fill="none" stroke="var(--color-border)" strokeWidth="4"/>
-      <circle cx={cx} cy={cy} r={R} fill="none" stroke="var(--color-dark-carbon)" strokeWidth="4"
+      <circle cx={cx} cy={cy} r={R} fill="none" stroke="var(--score-track)" strokeWidth="5"/>
+      <circle cx={cx} cy={cy} r={R} fill="none" stroke={ringColor} strokeWidth="5"
               strokeDasharray={circ} strokeDashoffset={off} strokeLinecap="round"
               transform={`rotate(-90 ${cx} ${cy})`}/>
       <text x={cx} y={cy+2} textAnchor="middle" dominantBaseline="middle"
@@ -3648,7 +3653,7 @@ function ScoreRing({ score }) {
         {score.toFixed(1)}
       </text>
       <text x={cx} y={cy+16} textAnchor="middle" fontSize="8" fontFamily="var(--font-mono)"
-            letterSpacing=".1em" fill="var(--color-umber)">/10</text>
+            letterSpacing=".1em" fill="var(--color-earth)">/10</text>
     </svg>
   );
 }
