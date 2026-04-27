@@ -4665,12 +4665,99 @@ const INDUSTRIES = [
 ];
 
 // ============== MAIN ==========================================
+async function fetchLiveNews(orgName, industry) {
+  const queries = [
+    `"${orgName}" sustainability carbon emissions net zero`,
+    `${industry} carbon market climate policy 2026`,
+  ];
+  const items = [];
+  for (const q of queries) {
+    try {
+      const rss = `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=en-US&gl=US&ceid=US:en`;
+      const api = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rss)}&count=6`;
+      const res = await fetch(api);
+      const data = await res.json();
+      if (data.status === 'ok' && data.items) items.push(...data.items);
+    } catch(e) { /* network error — fall through to fallback */ }
+  }
+  // dedupe by link
+  const seen = new Set();
+  return items.filter(it => { if (seen.has(it.link)) return false; seen.add(it.link); return true; });
+}
+
+function mapRssItem(item, i) {
+  // "Article title — Source Name" is the usual Google News RSS title format
+  const parts = item.title.split(/\s[–—-]\s/);
+  const source = parts.length > 1 ? parts.pop().trim() : (item.author || 'News');
+  const title  = parts.join(' — ').trim();
+
+  // Strip HTML from description
+  const body = item.description
+    ? item.description.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim().slice(0, 260) + '…'
+    : '';
+
+  const text = (title + ' ' + body).toLowerCase();
+
+  let kind = 'insight';
+  if (/policy|regulat|legislat|government|eu |cbam|ets |mandate/.test(text)) kind = 'policy';
+  else if (/market|price|credit|trading|voluntary|compliance|issuance/.test(text)) kind = 'market';
+  else if (/target|commit|pledge|net.zero|carbon neutral|announce/.test(text)) kind = 'company';
+
+  let impact = 'med';
+  if (/mandatory|landmark|historic|record|breakthrough|major/.test(text)) impact = 'high';
+  else if (/update|reminder|minor|report released/.test(text)) impact = 'low';
+
+  const tags = [];
+  if (/carbon/.test(text)) tags.push('Carbon');
+  if (/climate/.test(text)) tags.push('Climate');
+  if (/policy|regulat/.test(text)) tags.push('Policy');
+  if (/net.zero/.test(text)) tags.push('Net Zero');
+  if (/market|trading/.test(text)) tags.push('Markets');
+  if (/scope 3|supply chain/.test(text)) tags.push('Scope 3');
+
+  const pubDate = item.pubDate ? new Date(item.pubDate) : new Date();
+
+  return {
+    id: `live-${i}`,
+    kind,
+    date: pubDate.toISOString().slice(0, 10),
+    source,
+    title,
+    body,
+    impact,
+    tags: tags.slice(0, 3),
+    url: item.link,
+  };
+}
+
 function CompanyView({ prefs, setPrefs, strat }) {
   const [filterKind, setFilterKind] = React.useState('all');
   const [editing, setEditing] = React.useState(false);
+  const [news, setNews] = React.useState([]);
+  const [newsStatus, setNewsStatus] = React.useState('loading'); // loading | live | fallback
 
   const { generateNews } = window.CUR8_DATA;
-  const news = React.useMemo(() => generateNews(prefs), [prefs.industry, prefs.orgName]);
+
+  React.useEffect(() => {
+    if (!prefs.orgName) return;
+    setNewsStatus('loading');
+    setNews([]);
+    fetchLiveNews(prefs.orgName, prefs.industry || '')
+      .then(items => {
+        if (items.length >= 3) {
+          setNews(items.map(mapRssItem));
+          setNewsStatus('live');
+        } else {
+          setNews(generateNews(prefs));
+          setNewsStatus('fallback');
+        }
+      })
+      .catch(() => {
+        setNews(generateNews(prefs));
+        setNewsStatus('fallback');
+      });
+  }, [prefs.orgName, prefs.industry]);
+
   const filteredNews = news
     .filter(n => filterKind === 'all' || n.kind === filterKind)
     .sort((a,b) => b.date.localeCompare(a.date));
@@ -4800,8 +4887,22 @@ function CompanyView({ prefs, setPrefs, strat }) {
 
           {/* Feed */}
           <div style={{display:'flex', flexDirection:'column', gap: 14}}>
-            {filteredNews.map(n => <NewsCard key={n.id} n={n}/>)}
-            {filteredNews.length === 0 && (
+            {newsStatus === 'loading' && [0,1,2].map(i => (
+              <div key={i} style={{background:'#fff', border:'1px solid var(--color-border)', borderRadius:8, padding:24, display:'flex', gap:20, opacity: 0.5}}>
+                <div style={{width:90, display:'flex', flexDirection:'column', gap:10}}>
+                  <div style={{height:10, borderRadius:4, background:'var(--color-air-tint)', width:'80%'}}/>
+                  <div style={{height:8,  borderRadius:4, background:'var(--color-air-tint)', width:'60%'}}/>
+                </div>
+                <div style={{flex:1, borderLeft:'1px solid var(--color-border)', paddingLeft:20, display:'flex', flexDirection:'column', gap:10}}>
+                  <div style={{height:9,  borderRadius:4, background:'var(--color-air-tint)', width:'40%'}}/>
+                  <div style={{height:14, borderRadius:4, background:'var(--color-air-tint)', width:'90%'}}/>
+                  <div style={{height:14, borderRadius:4, background:'var(--color-air-tint)', width:'75%'}}/>
+                  <div style={{height:10, borderRadius:4, background:'var(--color-air-tint)', width:'55%', marginTop:4}}/>
+                </div>
+              </div>
+            ))}
+            {newsStatus !== 'loading' && filteredNews.map(n => <NewsCard key={n.id} n={n}/>)}
+            {newsStatus !== 'loading' && filteredNews.length === 0 && (
               <Card padding={48} style={{textAlign:'center', color:'var(--color-earth)'}}>
                 No signal in this category yet.
               </Card>
@@ -4810,9 +4911,23 @@ function CompanyView({ prefs, setPrefs, strat }) {
 
           <div style={{marginTop: 28, paddingTop: 18, borderTop:'1px solid var(--color-border)',
                        display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-            <span style={{fontFamily:'var(--font-mono)', fontSize: 11, color:'var(--color-umber)', letterSpacing:'.08em', textTransform:'uppercase'}}>
-              {filteredNews.length} of {NEWS.length} items · curated for {prefs.industry || 'your sector'}
-            </span>
+            <div style={{display:'flex', alignItems:'center', gap:10}}>
+              <span style={{fontFamily:'var(--font-mono)', fontSize: 11, color:'var(--color-umber)', letterSpacing:'.08em', textTransform:'uppercase'}}>
+                {newsStatus === 'loading' ? 'Fetching news…' : `${filteredNews.length} articles · ${prefs.industry || 'your sector'}`}
+              </span>
+              {newsStatus === 'live' && (
+                <span style={{fontFamily:'var(--font-mono)', fontSize:9, letterSpacing:'.1em', textTransform:'uppercase',
+                  padding:'3px 7px', borderRadius:3, background:'var(--score-5)', color:'#fff', fontWeight:500}}>
+                  Live
+                </span>
+              )}
+              {newsStatus === 'fallback' && (
+                <span style={{fontFamily:'var(--font-mono)', fontSize:9, letterSpacing:'.1em', textTransform:'uppercase',
+                  padding:'3px 7px', borderRadius:3, background:'var(--color-air-tint)', color:'var(--color-earth)'}}>
+                  Curated
+                </span>
+              )}
+            </div>
             <Btn variant="ghost" size="sm">Manage feed →</Btn>
           </div>
         </div>
