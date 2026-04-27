@@ -1293,9 +1293,9 @@ function findNZTPeers(nztEntry, n) {
   };
   const mix = IND_MIX[nztEntry.i] || {sp:15,nbs:40,cdr:45};
   return NZT_DB
-    .filter(e => e.i === nztEntry.i && e.n !== nztEntry.n && e.ty)
-    .map(e => ({ ...e, _diff: Math.abs(parseRev(e.r) - myRev) }))
-    .sort((a,b) => a._diff - b._diff)
+    .filter(e => e.i === nztEntry.i && e.n !== nztEntry.n)
+    .map(e => ({ ...e, _diff: Math.abs(parseRev(e.r) - myRev), _score: (e.ty ? 10 : 0) + (e.r ? 5 : 0) + (e.e ? 3 : 0) }))
+    .sort((a,b) => (b._score - a._score) || (a._diff - b._diff))
     .slice(0, n)
     .map(e => ({
       name: e.n,
@@ -1356,6 +1356,34 @@ function enrichPrefs(prefs) {
     enriched = { ...prefs };
   }
 
+  // Normalise raw NZT/SBTi industry strings → clean display names
+  const INDUSTRY_NORM = {
+    'Textiles, Apparel, Footwear and Luxury Goods': 'Fashion & Apparel',
+    'Textiles, Apparel, Footwear and Luxury G': 'Fashion & Apparel',
+    'Apparel': 'Fashion & Apparel',
+    'Food and Beverage Processing': 'Food & Beverage',
+    'Food, beverage & agriculture': 'Food & Beverage',
+    'Biotech, health care & pharma': 'Healthcare & Pharma',
+    'Biotech, Pharmaceuticals': 'Healthcare & Pharma',
+    'Biotech, health care & pharma': 'Healthcare & Pharma',
+    'Banks, Diverse Financials, Insurance': 'Financial Services',
+    'Fossil Fuels': 'Energy — Oil & Gas',
+    'Power generation': 'Energy & Utilities',
+    'Transportation services': 'Transportation & Aviation',
+    'Transportation': 'Transportation & Aviation',
+    'Infrastructure': 'Infrastructure',
+    'Telecommunication Services': 'Telecommunications',
+    'Software and Services': 'Technology',
+    'Technology Hardware and Equipment': 'Technology Hardware',
+    'Capital Goods': 'Industrials & Manufacturing',
+    'Materials': 'Materials & Mining',
+    'Hospitality': 'Hospitality & Travel',
+    'Retail': 'Retail',
+    'Services': 'Professional Services',
+    'Manufacturing': 'Manufacturing',
+  };
+  const normIndustry = s => INDUSTRY_NORM[s] || s;
+
   // Overlay SBTi data if company has a validated target
   const sbti = matchSBTI(enriched.orgName || prefs.orgName || '');
   if (sbti) {
@@ -1363,7 +1391,7 @@ function enrichPrefs(prefs) {
     enriched.sbtiRecord = sbti;
     if (!co && sbti.nzYear) enriched.targetYear = sbti.nzYear;
     else if (!co && sbti.ntYear) enriched.targetYear = sbti.ntYear;
-    if (!co && sbti.sector) enriched.industry = sbti.sector;
+    if (!co && sbti.sector) enriched.industry = normIndustry(sbti.sector);
     if (!co && sbti.country && !enriched.hq) enriched.hq = sbti.country;
   }
 
@@ -1372,7 +1400,7 @@ function enrichPrefs(prefs) {
     const nzt = matchNZT(enriched.orgName || prefs.orgName || '');
     if (nzt) {
       enriched._nztRecord = nzt;
-      if (nzt.i && !enriched.industry) enriched.industry = nzt.i;
+      if (nzt.i && !enriched.industry) enriched.industry = normIndustry(nzt.i);
       if (nzt.e && !enriched.employees) enriched.employees = nzt.e;
       if (nzt.r && !enriched.revenue) enriched.revenue = nzt.r;
       if (nzt.c && !enriched.hq) enriched.hq = nzt.c;
@@ -3754,11 +3782,12 @@ function Field({ label, children }) {
     </div>
   );
 }
-function Input({ value, defaultValue, onChange }) {
+function Input({ value, defaultValue, onChange, placeholder }) {
   return (
     <input
       value={value}
       defaultValue={defaultValue}
+      placeholder={placeholder}
       onChange={onChange ? e => onChange(e.target.value) : undefined}
       style={{
         width: '100%', border: '1px solid var(--color-border)', borderRadius: 6,
@@ -7104,16 +7133,41 @@ function BCPeers({ prefs }) {
   const peerNames = prefs.peers || [];
   const [selected, setSelected] = React.useState(0);
 
-  // Priority: PEER_PROFILES_DB named peers → NZT-sourced peers → generic fallback
+  // Priority: PEER_PROFILES_DB named peers → NZT-sourced peers → industry NZT lookup
   const dbPeers = peerNames.map(n => PEER_PROFILES_DB[n]).filter(Boolean);
   const nztPeers = prefs._nztPeers || [];
-  const peers = dbPeers.length ? dbPeers : nztPeers;
-  const fallbackPeers = !peers.length ? Object.values(PEER_PROFILES_DB).slice(0, 4) : null;
-  const displayPeers = peers.length ? peers : fallbackPeers;
+
+  // If still no peers, try building from NZT by industry
+  let industryNztPeers = [];
+  if (!dbPeers.length && !nztPeers.length && prefs.industry) {
+    const { NZT_DB } = window.CUR8_DATA;
+    const parseRev = r => { if (!r) return 0; const n = parseFloat(r.replace(/[^0-9.]/g,''))||0; return r.includes('B')?n*1e9:r.includes('M')?n*1e6:n; };
+    const myRev = parseRev(prefs.revenue);
+    const myOrg = (prefs.orgName||'').toLowerCase();
+    industryNztPeers = (NZT_DB || [])
+      .filter(e => e.i && (e.i === prefs.industry || prefs.industry.includes(e.i) || e.i.includes(prefs.industry)) && e.n.toLowerCase() !== myOrg)
+      .map(e => ({...e, _score: (e.ty?10:0)+(e.r?5:0)+(e.e?3:0), _diff: Math.abs(parseRev(e.r)-myRev)}))
+      .sort((a,b)=>(b._score-a._score)||(a._diff-b._diff))
+      .slice(0,5)
+      .map(e => ({
+        name: e.n, abbr: e.n.length > 22 ? e.n.split(' ').slice(0,2).join(' ') : e.n,
+        target: e.ty || '—', status: e.ts ? (e.ts.includes('Achieved') ? 'Achieved' : e.ts.includes('strategy') ? 'Strategy' : 'Pledge') : 'Pledge',
+        statusColor: e.ts && e.ts.includes('Achieved') ? '#7ECEAD' : e.ts && e.ts.includes('strategy') ? '#B2F6BD' : '#FFEAB2',
+        spend: e.r ? `~${e.r}` : '—', spendNote: e.r ? 'rev.' : '',
+        mix: {sp:15,nbs:45,cdr:40},
+        certifications: [e.rz ? 'Race to Zero' : null].filter(Boolean),
+        approach: `${e.n} (${e.c||'Global'}) has set a net-zero target of ${e.ty||'not yet disclosed'}${e.iy?`, with a ${e.iy} interim milestone`:''}. ${e.e?`Workforce: ${e.e.toLocaleString()} employees. `:''}Revenue: ${e.r||'not disclosed'}.`,
+        gap: `${e.n} targets ${e.ty||'2050+'} — compare against your ${prefs.targetYear} target.`,
+        _fromNZT: true,
+      }));
+  }
+
+  const peers = dbPeers.length ? dbPeers : nztPeers.length ? nztPeers : industryNztPeers;
+  const displayPeers = peers;
   const displayPeer = displayPeers[selected] || displayPeers[0];
   if (!displayPeer) return (
     <div style={{padding:48, textAlign:'center', color:'var(--color-earth)', fontSize:14, border:'1px solid var(--color-border)', borderRadius:8}}>
-      No peer data available for this company yet. Peer benchmarks are added as CUR8 builds out industry coverage.
+      No peer data available for this sector yet. Peer benchmarks are being expanded across all industries.
     </div>
   );
   const peer = displayPeer;
