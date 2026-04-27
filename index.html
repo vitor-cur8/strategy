@@ -3655,7 +3655,11 @@ function ScoreRing({ score }) {
 
 function ScoreDim({ dim }) {
   const pct = (dim.v / 10) * 100;
-  const band = dim.v >= 8 ? 'var(--color-dark-moss)' : dim.v >= 6 ? 'var(--cat-nbs)' : 'var(--color-umber)';
+  const band = dim.v >= 8 ? 'var(--score-5)'
+             : dim.v >= 6 ? 'var(--score-4)'
+             : dim.v >= 4 ? 'var(--score-3)'
+             : dim.v >= 2 ? 'var(--score-2)'
+             :               'var(--score-1)';
   return (
     <div>
       <div style={{display:'flex', justifyContent:'space-between', alignItems:'baseline', marginBottom: 6}}>
@@ -3667,8 +3671,8 @@ function ScoreDim({ dim }) {
           {dim.v.toFixed(1)}
         </div>
       </div>
-      <div style={{height: 4, background:'var(--color-border)', borderRadius: 2, overflow:'hidden', marginTop: 8}}>
-        <div style={{width: `${pct}%`, height:'100%', background: band, transition:'width .3s'}}/>
+      <div style={{height: 6, background:'var(--score-track)', borderRadius: 3, overflow:'hidden', marginTop: 8}}>
+        <div style={{width: `${pct}%`, height:'100%', background: band, borderRadius: 3, transition:'width .3s'}}/>
       </div>
     </div>
   );
