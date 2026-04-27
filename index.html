@@ -5471,13 +5471,7 @@ function ProjectRow({ p, cols, showNote, onClick }) {
       </div>
       <div style={{color:'var(--color-earth)', fontSize:12}}>{p.c}</div>
       <div style={{textAlign:'right'}}>
-        {p.rank != null
-          ? <span style={{fontFamily:'var(--font-mono)', fontSize:10, letterSpacing:'.06em', textTransform:'uppercase',
-              padding:'3px 8px', borderRadius:999, background: RANK_COLOR[p.rank] || '#E6E9EB', color:'var(--color-dark-carbon)'}}>
-              {RANK_LABEL[p.rank] || 'Pipeline'}
-            </span>
-          : <span style={{fontFamily:'var(--font-mono)', fontSize:10, color:'var(--color-umber)'}}>{p.reg || '—'}</span>
-        }
+        <span style={{fontFamily:'var(--font-mono)', fontSize:11, color:'var(--color-umber)'}}>{p.reg || '—'}</span>
       </div>
     </div>
   );
@@ -5601,7 +5595,7 @@ function ProjectsView({ prefs, strat, onOpenProject }) {
           <div>SUPPLIER</div>
           <div>METHOD</div>
           <div>COUNTRY</div>
-          <div style={{textAlign:'right'}}>{isSpTab ? 'REGISTRY' : 'STATUS'}</div>
+          <div style={{textAlign:'right'}}>REGISTRY</div>
         </div>
         {paged.map((p,i) => (
           <ProjectRow key={i} p={p} cols={COLS} showNote={isSpTab}
