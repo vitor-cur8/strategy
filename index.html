@@ -5639,7 +5639,7 @@ function RationaleRail({ entries, expanded, setExpanded }) {
           const accent = `var(--cat-${e.cat.toLowerCase()})`;
           return (
             <button key={i} onClick={()=>setExpanded(i)} style={{
-              position:'absolute', left: `calc(${pct}% * (100% - 0px) / 100% )`,
+              position:'absolute', left: `calc(${pct / 100} * (100% - 80px) + 40px)`,
               top: 0, transform:'translateX(-50%)', background:'none', border:0, cursor:'pointer',
               display:'flex', flexDirection:'column', alignItems:'center', gap: 6, padding: 0
             }}>
