@@ -3979,7 +3979,7 @@ function ProjectDetail({ project, onBack, onOpenProject }) {
         </div>
         <div style={{display:'flex', gap: 8}}>
           <Btn variant="ghost" size="sm">Save</Btn>
-          <Btn variant="cta" size="sm">Add to portfolio →</Btn>
+          <Btn variant="cta" size="sm">Upgrade Assessment →</Btn>
         </div>
       </div>
 
@@ -5262,7 +5262,7 @@ function StrategyView({ prefs, strat }) {
       <div style={{display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap: 0, border:'1px solid var(--color-border)', borderRadius: 8, background:'#fff', marginBottom: 24, overflow:'hidden'}}>
         <Kpi label="10-yr credits" val={fmt.k(strat.tenYrTotalT)} unit="tCO₂e"
              sub={`${fmt.k(strat.tenYr[0].totalT)} in year 1 → ${fmt.k(strat.tenYr[9].totalT)} in year 10`}/>
-        <Kpi label="10-yr cost" val={fmt.money(strat.tenYrCost)} unit="USD"
+        <Kpi label="Avg annual cost" val={fmt.money(strat.tenYrCost / 10)} unit="USD / yr"
              sub={`avg $${Math.round(strat.tenYrCost/strat.tenYrTotalT)} / tCO₂e`}/>
         <Kpi label="Coverage by target" val={targetCoverage + '%'} unit=""
              sub={`${fmt.k(strat.yearly[strat.yearly.length-1].totalT)} tCO₂e in ${prefs.targetYear}`}/>
