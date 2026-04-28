@@ -3094,6 +3094,33 @@ function StepAccount({ prefs, setPrefs }) {
   const [dismissed, setDismissed]     = React.useState(null); // name that user dismissed
   const [showUpload, setShowUpload]   = React.useState(false);
 
+  // Normalise raw industry strings (same map as enrichPrefs, kept in sync)
+  const IMAP = {
+    'Textiles, Apparel, Footwear and Luxury Goods':'Fashion & Apparel','Textiles, Apparel, Footwear and Luxury G':'Fashion & Apparel',
+    'Apparel':'Fashion & Apparel','Food and Beverage Processing':'Food & Beverage','Food, beverage & agriculture':'Food & Beverage',
+    'Biotech, health care & pharma':'Healthcare & Pharma','Biotech, Pharmaceuticals':'Healthcare & Pharma',
+    'Banks, Diverse Financials, Insurance':'Financial Services','Fossil Fuels':'Energy — Oil & Gas',
+    'Power generation':'Energy & Utilities','Transportation services':'Transportation & Aviation',
+    'Transportation':'Transportation & Aviation','Telecommunication Services':'Telecommunications',
+    'Software and Services':'Technology','Technology Hardware and Equipment':'Technology Hardware',
+    'Capital Goods':'Industrials & Manufacturing','Materials':'Materials & Mining',
+    'Hospitality':'Hospitality & Travel','Services':'Professional Services',
+    'Automobiles and Components':'Automotive','Automobiles':'Automotive','Auto Components':'Automotive',
+    'Consumer Discretionary':'Consumer Goods','Consumer Staples':'Consumer Goods',
+    'Retail':'Retail','Manufacturing':'Manufacturing','Infrastructure':'Infrastructure',
+    'Media':'Media & Entertainment','Real Estate':'Real Estate',
+    'Chemicals':'Chemicals','Containers and Packaging':'Packaging',
+  };
+  const normI = s => s ? (IMAP[s] || s) : '';
+
+  // Whenever a match banner changes, sync its industry into prefs (if prefs.industry not yet manually set)
+  React.useEffect(() => {
+    const raw = (matched && matched.industry) || (matchedNZT && matchedNZT.i) || (matchedSBTI && matchedSBTI.sector);
+    if (raw && !prefs._industryEdited) {
+      setPrefs(p => ({ ...p, industry: normI(raw) }));
+    }
+  }, [matched, matchedNZT, matchedSBTI]);
+
   const dismiss = () => {
     const name = prefs.orgName;
     setMatched(null); setMatchedNZT(null); setMatchedSBTI(null);
@@ -3281,15 +3308,15 @@ function StepAccount({ prefs, setPrefs }) {
           <Field label="Organisation">
             <OrgInput
               value={prefs.orgName}
-              onChange={v => { setMatched(null); setPrefs({ ...DEFAULT_PREFS, orgName: v }); }}
+              onChange={v => { setMatched(null); setMatchedNZT(null); setMatchedSBTI(null); setPrefs({ ...DEFAULT_PREFS, orgName: v, _industryEdited: false }); }}
               onBlur={handleOrgBlur}
             />
           </Field>
           <Field label="Industry">
             <Input
               value={prefs.industry || ''}
-              placeholder={matched || matchedNZT || matchedSBTI ? '' : 'e.g. Technology, Financial Services…'}
-              onChange={v => setPrefs({...prefs, industry: v})}
+              placeholder="e.g. Technology, Financial Services…"
+              onChange={v => setPrefs({...prefs, industry: v, _industryEdited: true})}
             />
             {(matched || matchedNZT || matchedSBTI) && prefs.industry && (
               <div style={{fontSize:11, color:'var(--color-umber)', marginTop:5, fontFamily:'var(--font-mono)', letterSpacing:'.04em'}}>
