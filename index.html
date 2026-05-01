@@ -728,12 +728,13 @@ function computeStrategy(prefs) {
 
   // Prices match dashboard: SP flat at $100, NBS rises $55→$95, CDR rises $155→$250
   // The blended price naturally starts low (all SP at $100) and rises as CDR scales.
-  const priceScale = (prefs.pricePerTonne || 100) / 100;
+  // Note: pricePerTonne preference is used for project scoring but not applied here —
+  // category prices are already calibrated to market data.
   const priceCat = (y, cat) => {
     const t = Math.max(0, Math.min(1, (y - startYr) / 9)); // 0→1 over 2026-2035
-    if (cat === 'SP')  return 100 * priceScale;                          // flat $100
-    if (cat === 'NBS') return (55 + t * 40) * priceScale;               // $55 → $95
-    if (cat === 'CDR') return (155 + t * 95) * priceScale;              // $155 → $250
+    if (cat === 'SP')  return 100;                 // flat $100/t
+    if (cat === 'NBS') return 55 + t * 40;        // $55 → $95/t
+    if (cat === 'CDR') return 155 + t * 95;       // $155 → $250/t
     return 0;
   };
 
