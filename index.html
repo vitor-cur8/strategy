@@ -185,6 +185,10 @@ em { font-style: italic; }
   from { transform: translateX(100%); }
   to   { transform: translateX(0); }
 }
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
 
 .tweaks-panel {
   position: fixed; right: 20px; bottom: 20px; z-index: 200;
@@ -6502,8 +6506,267 @@ function ScorePill({ score }) {
 }
 
 // ================ PREFERENCES DRAWER ========================
+// ============================================================
+//  AI ASSISTANT — calls Anthropic API directly from the browser
+// ============================================================
+function AssistantTab({ prefs, setPrefs }) {
+  const { REGIONS } = window.CUR8_DATA;
+  const regionNames = { GLOB:'Global', EUR:'Europe', NAM:'North America', APAC:'Asia Pacific', LAM:'Latin America', AFR:'Africa', MEA:'Middle East & Africa' };
+
+  const greeting = `Hi${prefs.orgName ? `, I'm looking at ${prefs.orgName}'s strategy` : ''}. What would you like to adjust? You can tell me things like "focus on European projects", "move the target to 2035", or "remove superpollutants".`;
+  const [messages, setMessages]   = React.useState([{ role:'assistant', content: greeting }]);
+  const [input, setInput]         = React.useState('');
+  const [loading, setLoading]     = React.useState(false);
+  const [apiKey, setApiKey]       = React.useState(() => sessionStorage.getItem('cur8_api_key') || '');
+  const [keyDraft, setKeyDraft]   = React.useState('');
+  const [showKey, setShowKey]     = React.useState(false);
+  const bottomRef = React.useRef(null);
+  const inputRef  = React.useRef(null);
+
+  React.useEffect(() => { bottomRef.current?.scrollIntoView({ behavior:'smooth' }); }, [messages, loading]);
+
+  const saveKey = () => {
+    const k = keyDraft.trim();
+    sessionStorage.setItem('cur8_api_key', k);
+    setApiKey(k);
+    setShowKey(false);
+    setKeyDraft('');
+    setTimeout(() => inputRef.current?.focus(), 50);
+  };
+
+  const buildSystem = () => {
+    const summary = [
+      prefs.orgName    && `Company: ${prefs.orgName}`,
+      prefs.industry   && `Industry: ${prefs.industry}`,
+      `Annual emissions: ${prefs.annualEmissions.toLocaleString()} tCO₂e/yr`,
+      `Net-zero target: ${prefs.targetYear}`,
+      `SBTi NZ 2.0: ${prefs.sbtiAligned ? 'Yes — 10% residual' : 'No — 20% residual'}`,
+      `Superpollutants: ${prefs.includeSuperpollutants ? 'Included (Phase 1)' : 'Excluded'}`,
+      `Regions: ${prefs.regions.map(r => regionNames[r] || r).join(', ')}`,
+      prefs.goals?.length && `Goals: ${prefs.goals.join(', ')}`,
+    ].filter(Boolean).join('\n');
+
+    return `You are CUR8's carbon strategy assistant. CUR8 is a carbon credit brokerage helping companies build a decade-long purchase strategy.
+
+The strategy has three phases:
+• Phase 1 (2026-2031): Superpollutants — methane, ODS, HFC credits at $100/t. Fast avoided-warming impact.
+• Phase 2 (2031-2035): Nature-based solutions — reforestation, mangroves, soil at $55-95/t.
+• Phase 3 (2035-2050): Durable CDR — biochar, ERW, DAC at $155-250/t.
+Credits only cover the irreducible residual: ${prefs.sbtiAligned ? '10%' : '20%'} of annual emissions, bought at constant volume every year.
+
+Current preferences:
+${summary}
+
+Your job: help the user refine their strategy through conversation. When preferences need updating, respond with a brief message (2-4 sentences) followed by an <update> block containing ONLY the changed fields as JSON:
+
+<update>{"targetYear": 2035, "sbtiAligned": true}</update>
+
+Updatable fields and valid values:
+• orgName: string
+• industry: string
+• annualEmissions: number (tCO₂e/yr, integer)
+• targetYear: number — one of 2027-2050
+• sbtiAligned: boolean — true = SBTi NZ 2.0 (10% residual), false = 20%
+• includeSuperpollutants: boolean
+• regions: array — any of ["GLOB","EUR","NAM","APAC","LAM","AFR","MEA"]
+• goals: array of strings
+• pricePerTonne: number ($/tCO₂e budget ceiling)
+
+Rules:
+- Only include fields that actually changed.
+- If the user asks a question without requesting changes, answer it and omit the <update> block.
+- Never fabricate emissions data. If the user states their emissions, use that number.
+- Keep responses concise and actionable.`;
+  };
+
+  const send = async () => {
+    const text = input.trim();
+    if (!text || loading) return;
+    if (!apiKey) { setShowKey(true); return; }
+
+    const userMsg = { role:'user', content: text };
+    const history = [...messages, userMsg];
+    setMessages(history);
+    setInput('');
+    setLoading(true);
+
+    try {
+      const res = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify({
+          model: 'claude-opus-4-5',
+          max_tokens: 1024,
+          system: buildSystem(),
+          messages: history.map(m => ({ role: m.role, content: m.content })),
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error?.message || `API error ${res.status}`);
+      }
+
+      const data = await res.json();
+      const raw  = data.content?.[0]?.text || '';
+
+      // Extract and apply preference updates
+      const updateMatch = raw.match(/<update>([\s\S]*?)<\/update>/);
+      let applied = null;
+      if (updateMatch) {
+        try {
+          const updates = JSON.parse(updateMatch[1].trim());
+          setPrefs(p => ({ ...p, ...updates }));
+          applied = Object.keys(updates);
+        } catch(e) { console.warn('update parse failed:', e); }
+      }
+
+      const display = raw.replace(/<update>[\s\S]*?<\/update>/g, '').trim();
+      setMessages(msgs => [...msgs, { role:'assistant', content: display, applied }]);
+    } catch(e) {
+      setMessages(msgs => [...msgs, {
+        role:'assistant', content:`Sorry, I hit an error: ${e.message}`, error: true,
+      }]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleKey = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } };
+
+  const labelFor = {
+    targetYear:'Target year', sbtiAligned:'SBTi alignment', includeSuperpollutants:'Superpollutants',
+    annualEmissions:'Annual emissions', regions:'Regions', goals:'Goals',
+    pricePerTonne:'Price ceiling', orgName:'Company', industry:'Industry',
+  };
+
+  // ---- Key setup screen ----
+  if (showKey || !apiKey) return (
+    <div style={{flex:1, display:'flex', flexDirection:'column', padding:'32px 28px', gap:16}}>
+      <div style={{fontSize:14, fontWeight:500, letterSpacing:'-0.01em'}}>Connect your Anthropic API key</div>
+      <div style={{fontSize:13, color:'var(--color-earth)', lineHeight:1.55}}>
+        The assistant calls Claude directly from your browser. Your key is stored in this tab's session only — never sent to CUR8's servers.
+      </div>
+      <div style={{display:'flex', flexDirection:'column', gap:8}}>
+        <input
+          type="password"
+          value={keyDraft}
+          onChange={e => setKeyDraft(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && saveKey()}
+          placeholder="sk-ant-…"
+          autoFocus
+          style={{
+            fontFamily:'var(--font-mono)', fontSize:12, padding:'10px 12px',
+            border:'1px solid var(--color-border)', borderRadius:6, outline:'none',
+            letterSpacing:'.04em',
+          }}
+        />
+        <Btn variant="primary" onClick={saveKey} style={{alignSelf:'flex-start'}}>Connect →</Btn>
+      </div>
+      <div style={{fontSize:11, color:'var(--color-umber)', marginTop:4}}>
+        Get a key at <a href="https://console.anthropic.com" target="_blank" rel="noopener noreferrer" style={{color:'var(--color-earth)'}}>console.anthropic.com</a>
+      </div>
+    </div>
+  );
+
+  // ---- Chat screen ----
+  return (
+    <div style={{flex:1, display:'flex', flexDirection:'column', minHeight:0}}>
+      {/* key indicator */}
+      <div style={{padding:'8px 28px', borderBottom:'1px solid var(--color-border)', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+        <span style={{fontFamily:'var(--font-mono)', fontSize:10, color:'var(--color-umber)', letterSpacing:'.08em'}}>
+          ● Connected
+        </span>
+        <button onClick={() => { setShowKey(true); setKeyDraft(''); }}
+          style={{background:'none', border:'none', cursor:'pointer', fontFamily:'var(--font-mono)', fontSize:10,
+            letterSpacing:'.08em', textTransform:'uppercase', color:'var(--color-umber)', opacity:.6}}>
+          Change key
+        </button>
+      </div>
+
+      {/* messages */}
+      <div style={{flex:1, overflowY:'auto', padding:'20px 28px', display:'flex', flexDirection:'column', gap:16}}>
+        {messages.map((m, i) => (
+          <div key={i} style={{display:'flex', flexDirection:'column', alignItems: m.role === 'user' ? 'flex-end' : 'flex-start', gap:6}}>
+            <div style={{
+              maxWidth:'88%', padding:'12px 16px', borderRadius: m.role === 'user' ? '12px 12px 2px 12px' : '12px 12px 12px 2px',
+              background: m.role === 'user' ? 'var(--color-dark-carbon)' : m.error ? '#fff0f0' : 'var(--color-air)',
+              color: m.role === 'user' ? '#fff' : m.error ? '#c00' : 'var(--color-dark-carbon)',
+              fontSize:13, lineHeight:1.55,
+            }}>
+              {m.content}
+            </div>
+            {m.applied && m.applied.length > 0 && (
+              <div style={{display:'flex', gap:4, flexWrap:'wrap', paddingLeft:4}}>
+                {m.applied.map(k => (
+                  <span key={k} style={{
+                    fontFamily:'var(--font-mono)', fontSize:10, letterSpacing:'.06em',
+                    padding:'2px 7px', borderRadius:3,
+                    background:'var(--color-earth)', color:'#fff',
+                  }}>↑ {labelFor[k] || k}</span>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+        {loading && (
+          <div style={{display:'flex', alignItems:'center', gap:8, color:'var(--color-umber)', fontSize:13}}>
+            <span style={{animation:'spin 1s linear infinite', display:'inline-block'}}>⟳</span> Thinking…
+          </div>
+        )}
+        <div ref={bottomRef}/>
+      </div>
+
+      {/* input */}
+      <div style={{padding:'16px 28px', borderTop:'1px solid var(--color-border)', display:'flex', gap:8}}>
+        <textarea
+          ref={inputRef}
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={handleKey}
+          placeholder="Ask me to adjust the strategy…"
+          rows={2}
+          style={{
+            flex:1, resize:'none', padding:'10px 12px', fontSize:13, lineHeight:1.45,
+            border:'1px solid var(--color-border)', borderRadius:8, outline:'none',
+            fontFamily:'inherit', background:'var(--color-air)',
+          }}
+        />
+        <button onClick={send} disabled={loading || !input.trim()}
+          style={{
+            padding:'0 16px', borderRadius:8, border:'none', cursor: loading || !input.trim() ? 'not-allowed' : 'pointer',
+            background:'var(--color-dark-carbon)', color:'#fff', fontSize:18,
+            opacity: loading || !input.trim() ? 0.35 : 1, transition:'opacity .15s',
+            alignSelf:'stretch', flexShrink:0,
+          }}>↑</button>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+//  PREFS DRAWER — Settings + Assistant tabs
+// ============================================================
 function PrefsDrawer({ prefs, setPrefs, onClose }) {
   const { REGIONS } = window.CUR8_DATA;
+  const [tab, setTab] = React.useState('settings');
+
+  const TabBtn = ({ id, label }) => (
+    <button onClick={() => setTab(id)} style={{
+      flex:1, padding:'10px', fontFamily:'var(--font-mono)', fontSize:11,
+      letterSpacing:'.08em', textTransform:'uppercase', border:'none',
+      background: tab === id ? 'var(--color-dark-carbon)' : 'transparent',
+      color: tab === id ? '#fff' : 'var(--color-dark-carbon)',
+      opacity: tab === id ? 1 : 0.45, cursor:'pointer', borderRadius:4,
+      transition:'all .15s',
+    }}>{label}</button>
+  );
+
   return (
     <div style={{position:'fixed', inset:0, zIndex: 100}}>
       <div onClick={onClose} style={{position:'absolute', inset:0, background:'rgba(43,39,31,.4)', backdropFilter:'blur(2px)'}}/>
@@ -6512,113 +6775,130 @@ function PrefsDrawer({ prefs, setPrefs, onClose }) {
         display:'flex', flexDirection:'column', boxShadow:'var(--shadow-lg)',
         animation: 'drawerIn .2s ease-out'
       }}>
-        <div style={{padding:'24px 28px', borderBottom:'1px solid var(--color-border)', display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-          <div>
-            <Eyebrow style={{marginBottom: 4}}>Preferences</Eyebrow>
-            <div style={{fontSize: 18, fontWeight: 500}}>Tune your portfolio</div>
-          </div>
-          <button onClick={onClose} style={{background:'none', border:'none', cursor:'pointer', fontSize: 20, color:'var(--color-dark-carbon)', opacity: .4}}>✕</button>
-        </div>
-        <div style={{flex: 1, overflowY:'auto', padding:'24px 28px', display:'flex', flexDirection:'column', gap: 28}}>
-          {/* Annual emissions */}
-          <div>
-            <div style={{display:'flex', justifyContent:'space-between', marginBottom: 10}}>
-              <Eyebrow color="var(--color-umber)">Annual emissions</Eyebrow>
-              <span style={{fontFamily:'var(--font-mono)', fontSize: 12}}>{fmt.k(prefs.annualEmissions)} tCO₂e</span>
+        {/* Header */}
+        <div style={{padding:'20px 28px 0', borderBottom:'1px solid var(--color-border)'}}>
+          <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:16}}>
+            <div>
+              <Eyebrow style={{marginBottom: 4}}>Preferences</Eyebrow>
+              <div style={{fontSize: 18, fontWeight: 500}}>Tune your portfolio</div>
             </div>
-            <input type="range" min={100000} max={10000000} step={50000} value={prefs.annualEmissions}
-              onChange={e => setPrefs({...prefs, annualEmissions: +e.target.value})} style={{width:'100%', accentColor:'var(--color-dark-carbon)'}}/>
+            <button onClick={onClose} style={{background:'none', border:'none', cursor:'pointer', fontSize: 20, color:'var(--color-dark-carbon)', opacity: .4}}>✕</button>
           </div>
-
-          {/* Target year */}
-          <div>
-            <Eyebrow color="var(--color-umber)" style={{marginBottom: 10}}>Net-zero target</Eyebrow>
-            <div style={{display:'flex', gap: 6, flexWrap:'wrap'}}>
-              {[2030,2035,2040,2045,2050].map(y => (
-                <button key={y} onClick={()=>setPrefs({...prefs, targetYear: y})}
-                  style={{
-                    flex:1, padding:'10px', fontFamily:'var(--font-mono)', fontSize: 12,
-                    border: prefs.targetYear===y ? '1.5px solid var(--color-dark-carbon)' : '1px solid var(--color-border)',
-                    background: prefs.targetYear===y ? 'var(--color-dark-carbon)' : '#fff',
-                    color: prefs.targetYear===y ? '#fff' : 'var(--color-dark-carbon)',
-                    borderRadius: 4, cursor:'pointer'
-                  }}>{y}</button>
-              ))}
-            </div>
-          </div>
-
-          {/* SBTi + SP toggles */}
-          <div style={{display:'flex', flexDirection:'column', gap: 14}}>
-            <Toggle
-              on={prefs.sbtiAligned}
-              onChange={v => setPrefs({...prefs, sbtiAligned: v})}
-              label="SBTi NZ 2.0 aligned"
-              desc="Aggressive ramp to ≥90% coverage by target."
-            />
-            <Toggle
-              on={prefs.includeSuperpollutants}
-              onChange={v => setPrefs({...prefs, includeSuperpollutants: v})}
-              label="Include superpollutants"
-              desc="Phase 1 avoided-warming credits."
-            />
-          </div>
-
-          {/* Budget */}
-          <div>
-            <Eyebrow color="var(--color-umber)" style={{marginBottom: 10}}>Budget</Eyebrow>
-            <div style={{display:'flex', gap: 4, marginBottom: 14}}>
-              <button onClick={()=>setPrefs({...prefs, budgetMode:'price'})}
-                style={{flex:1, padding:'7px', fontFamily:'var(--font-mono)', fontSize: 11, letterSpacing:'.06em', textTransform:'uppercase', border:'1px solid var(--color-border)', borderRadius: 4, background: prefs.budgetMode==='price' ? 'var(--color-dark-carbon)':'#fff', color: prefs.budgetMode==='price' ? '#fff':'var(--color-dark-carbon)', cursor:'pointer'}}>Price ceiling</button>
-              <button onClick={()=>setPrefs({...prefs, budgetMode:'total'})}
-                style={{flex:1, padding:'7px', fontFamily:'var(--font-mono)', fontSize: 11, letterSpacing:'.06em', textTransform:'uppercase', border:'1px solid var(--color-border)', borderRadius: 4, background: prefs.budgetMode==='total' ? 'var(--color-dark-carbon)':'#fff', color: prefs.budgetMode==='total' ? '#fff':'var(--color-dark-carbon)', cursor:'pointer'}}>Total budget</button>
-            </div>
-            {prefs.budgetMode === 'price' ? (
-              <>
-                <div style={{display:'flex', justifyContent:'space-between', marginBottom: 6}}>
-                  <span style={{fontSize: 13}}>Max $ / tCO₂e</span>
-                  <span style={{fontFamily:'var(--font-mono)', fontSize: 13, fontWeight:500}}>${prefs.pricePerTonne}</span>
-                </div>
-                <input type="range" min={50} max={400} step={10} value={prefs.pricePerTonne}
-                  onChange={e => {
-                    const p = +e.target.value;
-                    const { computeStrategy } = window.CUR8_DATA;
-                    const s = computeStrategy(prefs);
-                    setPrefs({...prefs, pricePerTonne: p, totalBudget: Math.round(s.tenYrTotalT * p)});
-                  }} style={{width:'100%', accentColor:'var(--color-dark-carbon)'}}/>
-              </>
-            ) : (
-              <>
-                <div style={{display:'flex', justifyContent:'space-between', marginBottom: 6}}>
-                  <span style={{fontSize: 13}}>10-yr total</span>
-                  <span style={{fontFamily:'var(--font-mono)', fontSize: 13, fontWeight:500}}>{fmt.money(prefs.totalBudget)}</span>
-                </div>
-                <input type="range" min={20000000} max={500000000} step={5000000} value={prefs.totalBudget}
-                  onChange={e => setPrefs({...prefs, totalBudget: +e.target.value})} style={{width:'100%', accentColor:'var(--color-dark-carbon)'}}/>
-              </>
-            )}
-          </div>
-
-          {/* Regions */}
-          <div>
-            <Eyebrow color="var(--color-umber)" style={{marginBottom: 10}}>Regions</Eyebrow>
-            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap: 6}}>
-              {REGIONS.map(r => {
-                const on = prefs.regions.includes(r.key);
-                return (
-                  <button key={r.key}
-                    onClick={()=>setPrefs({...prefs, regions: on ? prefs.regions.filter(x=>x!==r.key) : [...prefs.regions, r.key]})}
-                    style={{padding:'9px 12px', textAlign:'left', cursor:'pointer', borderRadius: 4, border: on ? '1.5px solid var(--color-dark-carbon)' : '1px solid var(--color-border)', background: on ? 'var(--color-air)' : '#fff', fontSize: 12}}>
-                    <div style={{fontFamily:'var(--font-mono)', fontSize: 9, letterSpacing:'.08em', color:'var(--color-umber)'}}>{r.key}</div>
-                    <div style={{fontSize: 12, fontWeight: on ? 500 : 400}}>{r.name}</div>
-                  </button>
-                );
-              })}
-            </div>
+          {/* Tab switcher */}
+          <div style={{display:'flex', gap:4, padding:'4px', background:'var(--color-air)', borderRadius:6, marginBottom:'-1px'}}>
+            <TabBtn id="settings" label="Settings"/>
+            <TabBtn id="assistant" label="AI Assistant ✦"/>
           </div>
         </div>
-        <div style={{padding:'20px 28px', borderTop:'1px solid var(--color-border)', display:'flex', justifyContent:'flex-end', gap: 12}}>
-          <Btn variant="primary" onClick={onClose}>Apply →</Btn>
-        </div>
+
+        {/* Settings tab */}
+        {tab === 'settings' && (<>
+          <div style={{flex: 1, overflowY:'auto', padding:'24px 28px', display:'flex', flexDirection:'column', gap: 28}}>
+            {/* Annual emissions */}
+            <div>
+              <div style={{display:'flex', justifyContent:'space-between', marginBottom: 10}}>
+                <Eyebrow color="var(--color-umber)">Annual emissions</Eyebrow>
+                <span style={{fontFamily:'var(--font-mono)', fontSize: 12}}>{fmt.k(prefs.annualEmissions)} tCO₂e</span>
+              </div>
+              <input type="range" min={100000} max={10000000} step={50000} value={prefs.annualEmissions}
+                onChange={e => setPrefs({...prefs, annualEmissions: +e.target.value})} style={{width:'100%', accentColor:'var(--color-dark-carbon)'}}/>
+            </div>
+
+            {/* Target year */}
+            <div>
+              <Eyebrow color="var(--color-umber)" style={{marginBottom: 10}}>Net-zero target</Eyebrow>
+              <div style={{display:'flex', gap: 6, flexWrap:'wrap'}}>
+                {[2030,2035,2040,2045,2050].map(y => (
+                  <button key={y} onClick={()=>setPrefs({...prefs, targetYear: y})}
+                    style={{
+                      flex:1, padding:'10px', fontFamily:'var(--font-mono)', fontSize: 12,
+                      border: prefs.targetYear===y ? '1.5px solid var(--color-dark-carbon)' : '1px solid var(--color-border)',
+                      background: prefs.targetYear===y ? 'var(--color-dark-carbon)' : '#fff',
+                      color: prefs.targetYear===y ? '#fff' : 'var(--color-dark-carbon)',
+                      borderRadius: 4, cursor:'pointer'
+                    }}>{y}</button>
+                ))}
+              </div>
+            </div>
+
+            {/* SBTi + SP toggles */}
+            <div style={{display:'flex', flexDirection:'column', gap: 14}}>
+              <Toggle
+                on={prefs.sbtiAligned}
+                onChange={v => setPrefs({...prefs, sbtiAligned: v})}
+                label="SBTi NZ 2.0 aligned"
+                desc="Aggressive ramp to ≥90% coverage by target."
+              />
+              <Toggle
+                on={prefs.includeSuperpollutants}
+                onChange={v => setPrefs({...prefs, includeSuperpollutants: v})}
+                label="Include superpollutants"
+                desc="Phase 1 avoided-warming credits."
+              />
+            </div>
+
+            {/* Budget */}
+            <div>
+              <Eyebrow color="var(--color-umber)" style={{marginBottom: 10}}>Budget</Eyebrow>
+              <div style={{display:'flex', gap: 4, marginBottom: 14}}>
+                <button onClick={()=>setPrefs({...prefs, budgetMode:'price'})}
+                  style={{flex:1, padding:'7px', fontFamily:'var(--font-mono)', fontSize: 11, letterSpacing:'.06em', textTransform:'uppercase', border:'1px solid var(--color-border)', borderRadius: 4, background: prefs.budgetMode==='price' ? 'var(--color-dark-carbon)':'#fff', color: prefs.budgetMode==='price' ? '#fff':'var(--color-dark-carbon)', cursor:'pointer'}}>Price ceiling</button>
+                <button onClick={()=>setPrefs({...prefs, budgetMode:'total'})}
+                  style={{flex:1, padding:'7px', fontFamily:'var(--font-mono)', fontSize: 11, letterSpacing:'.06em', textTransform:'uppercase', border:'1px solid var(--color-border)', borderRadius: 4, background: prefs.budgetMode==='total' ? 'var(--color-dark-carbon)':'#fff', color: prefs.budgetMode==='total' ? '#fff':'var(--color-dark-carbon)', cursor:'pointer'}}>Total budget</button>
+              </div>
+              {prefs.budgetMode === 'price' ? (
+                <>
+                  <div style={{display:'flex', justifyContent:'space-between', marginBottom: 6}}>
+                    <span style={{fontSize: 13}}>Max $ / tCO₂e</span>
+                    <span style={{fontFamily:'var(--font-mono)', fontSize: 13, fontWeight:500}}>${prefs.pricePerTonne}</span>
+                  </div>
+                  <input type="range" min={50} max={400} step={10} value={prefs.pricePerTonne}
+                    onChange={e => {
+                      const p = +e.target.value;
+                      const { computeStrategy } = window.CUR8_DATA;
+                      const s = computeStrategy(prefs);
+                      setPrefs({...prefs, pricePerTonne: p, totalBudget: Math.round(s.tenYrTotalT * p)});
+                    }} style={{width:'100%', accentColor:'var(--color-dark-carbon)'}}/>
+                </>
+              ) : (
+                <>
+                  <div style={{display:'flex', justifyContent:'space-between', marginBottom: 6}}>
+                    <span style={{fontSize: 13}}>10-yr total</span>
+                    <span style={{fontFamily:'var(--font-mono)', fontSize: 13, fontWeight:500}}>{fmt.money(prefs.totalBudget)}</span>
+                  </div>
+                  <input type="range" min={20000000} max={500000000} step={5000000} value={prefs.totalBudget}
+                    onChange={e => setPrefs({...prefs, totalBudget: +e.target.value})} style={{width:'100%', accentColor:'var(--color-dark-carbon)'}}/>
+                </>
+              )}
+            </div>
+
+            {/* Regions */}
+            <div>
+              <Eyebrow color="var(--color-umber)" style={{marginBottom: 10}}>Regions</Eyebrow>
+              <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap: 6}}>
+                {REGIONS.map(r => {
+                  const on = prefs.regions.includes(r.key);
+                  return (
+                    <button key={r.key}
+                      onClick={()=>setPrefs({...prefs, regions: on ? prefs.regions.filter(x=>x!==r.key) : [...prefs.regions, r.key]})}
+                      style={{padding:'9px 12px', textAlign:'left', cursor:'pointer', borderRadius: 4, border: on ? '1.5px solid var(--color-dark-carbon)' : '1px solid var(--color-border)', background: on ? 'var(--color-air)' : '#fff', fontSize: 12}}>
+                      <div style={{fontFamily:'var(--font-mono)', fontSize: 9, letterSpacing:'.08em', color:'var(--color-umber)'}}>{r.key}</div>
+                      <div style={{fontSize: 12, fontWeight: on ? 500 : 400}}>{r.name}</div>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+          <div style={{padding:'20px 28px', borderTop:'1px solid var(--color-border)', display:'flex', justifyContent:'flex-end', gap: 12}}>
+            <Btn variant="primary" onClick={onClose}>Apply →</Btn>
+          </div>
+        </>)}
+
+        {/* Assistant tab */}
+        {tab === 'assistant' && (
+          <AssistantTab prefs={prefs} setPrefs={setPrefs}/>
+        )}
       </div>
     </div>
   );
