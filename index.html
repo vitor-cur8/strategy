@@ -5201,6 +5201,46 @@ window.CompanyView = CompanyView;
    Custom SVG charts so we have full control over the editorial feel.
    ============================================================ */
 
+// ---- Share button ------------------------------------------
+function ShareBtn({ prefs }) {
+  const [state, setState] = React.useState('idle'); // idle | copied | error
+
+  const handleShare = async () => {
+    try {
+      const hash = prefsToHash(prefs);
+      const url  = window.location.origin + window.location.pathname + hash;
+      await navigator.clipboard.writeText(url);
+      setState('copied');
+      setTimeout(() => setState('idle'), 2000);
+    } catch(e) {
+      // Fallback: select the URL in a prompt
+      const hash = prefsToHash(prefs);
+      const url  = window.location.origin + window.location.pathname + hash;
+      window.prompt('Copy this link to share the strategy:', url);
+      setState('idle');
+    }
+  };
+
+  const label = state === 'copied' ? '✓ Copied!' : 'Share strategy';
+  const bg    = state === 'copied' ? 'var(--color-earth)' : 'var(--color-dark-carbon)';
+
+  return (
+    <button onClick={handleShare} style={{
+      fontFamily:'var(--font-mono)', fontSize: 11, letterSpacing:'.08em', textTransform:'uppercase',
+      padding:'6px 14px', borderRadius: 4, border:'none', cursor:'pointer',
+      background: bg, color:'#fff', transition:'background .2s',
+      display:'flex', alignItems:'center', gap: 6,
+    }}>
+      {state !== 'copied' && (
+        <svg width="12" height="12" viewBox="0 0 16 16" fill="none" style={{flexShrink:0}}>
+          <path d="M12 2.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zM4 6.5a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm8 4a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3zm-7.5-2.35 7-3.8m-7 6.45 7 3.8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+        </svg>
+      )}
+      {label}
+    </button>
+  );
+}
+
 function Dashboard({ prefs, setPrefs, onBack }) {
   const [view, setView] = React.useState(() => localStorage.getItem('cur8-dash-view') || 'strategy'); // strategy | roadmap | projects | company | project
   const [selectedProject, setSelectedProject] = React.useState(null);
@@ -5247,6 +5287,7 @@ function Dashboard({ prefs, setPrefs, onBack }) {
           <span style={{fontFamily:'var(--font-mono)', fontSize: 11, color:'var(--color-umber)', letterSpacing:'.08em'}}>
             {prefs.orgName}
           </span>
+          <ShareBtn prefs={prefs}/>
           <Btn variant="ghost" size="sm" onClick={()=>setPrefsOpen(true)}>Preferences</Btn>
           <Btn variant="cta" size="sm">Buy credits</Btn>
         </div>
@@ -7458,13 +7499,57 @@ window.BusinessCaseView = BusinessCaseView;
 
 const PREFS_VERSION = 'cur8-v3';
 
+// ============================================================
+//  URL SHARE — encode/decode prefs in the hash so strategies
+//  are shareable as a plain link, no backend needed.
+// ============================================================
+const SHARE_PREFIX = '#s=';
+
+function prefsToHash(prefs) {
+  // Strip internal/runtime fields (prefixed _) before encoding
+  const clean = Object.fromEntries(
+    Object.entries(prefs).filter(([k]) => !k.startsWith('_'))
+  );
+  try { return SHARE_PREFIX + btoa(unescape(encodeURIComponent(JSON.stringify(clean)))); }
+  catch(e) { return ''; }
+}
+
+function hashToPrefs(DEFAULT_PREFS) {
+  try {
+    const h = window.location.hash;
+    if (!h.startsWith(SHARE_PREFIX)) return null;
+    const json = decodeURIComponent(escape(atob(h.slice(SHARE_PREFIX.length))));
+    const parsed = JSON.parse(json);
+    // Merge with DEFAULT_PREFS so any new fields added later get their defaults
+    return { ...DEFAULT_PREFS, ...parsed };
+  } catch(e) { return null; }
+}
+
 function App() {
   const { DEFAULT_PREFS, computeStrategy } = window.CUR8_DATA;
 
-  const [phase, setPhase] = React.useState('onboarding');
-  const [prefs, setPrefs] = React.useState(DEFAULT_PREFS);
+  // Initialise from URL hash if present (shared link) — skip onboarding in that case
+  const shared = React.useMemo(() => hashToPrefs(DEFAULT_PREFS), []);
+
+  const [phase, setPhase] = React.useState(shared ? 'dashboard' : 'onboarding');
+  const [prefs, setPrefs] = React.useState(shared || DEFAULT_PREFS);
 
   const strat = React.useMemo(() => computeStrategy(prefs), [prefs]);
+
+  // Keep URL hash in sync whenever prefs change (only while on dashboard)
+  React.useEffect(() => {
+    if (phase !== 'dashboard') return;
+    const hash = prefsToHash(prefs);
+    if (hash) {
+      window.history.replaceState(null, '', hash);
+    }
+  }, [prefs, phase]);
+
+  // Clear hash when going back to onboarding
+  const handleBack = () => {
+    window.history.replaceState(null, '', window.location.pathname);
+    setPhase('onboarding');
+  };
 
   const handleOnboardingDone = () => {
     setPhase('dashboard');
@@ -7474,7 +7559,7 @@ function App() {
     return <Onboarding prefs={prefs} setPrefs={setPrefs} onDone={handleOnboardingDone} />;
   }
 
-  return <Dashboard prefs={prefs} setPrefs={setPrefs} strat={strat} onBack={() => setPhase('onboarding')} />;
+  return <Dashboard prefs={prefs} setPrefs={setPrefs} strat={strat} onBack={handleBack} />;
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(<App />);
