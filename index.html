@@ -692,14 +692,19 @@ function projectFitScore(p, prefs, methodKey) {
 function computeStrategy(prefs) {
   const annual = prefs.annualEmissions;
 
-  // % of ongoing emissions to neutralise, ramps up to 100% at target year
+  // Residual emissions model:
+  // Credits cover what can't yet be abated — 100% of emissions today,
+  // declining linearly as abatement progresses, reaching the irreducible
+  // residual at the target year.
+  // SBTi NZ 2.0: ~10% residual. Non-SBTi: ~20% (less aggressive abatement plan).
   const targetYr = prefs.targetYear;
   const startYr = 2026;
+  const residualFrac = prefs.sbtiAligned ? 0.10 : 0.20;
   const ramp = (y) => {
-    // SBTi-aligned: 10% at 2026, linear to 100% at targetYr
     const t = Math.max(0, Math.min(1, (y - startYr) / (targetYr - startYr)));
-    const base = 0.10 + 0.90 * t;
-    return prefs.sbtiAligned ? base : base * 0.6; // non-SBTi less aggressive
+    // Abatement goes from 0% now → (1 - residualFrac) by target year
+    const abatement = (1 - residualFrac) * t;
+    return 1 - abatement; // credits = remaining footprint after abatement
   };
 
   // Category mix by year — Phase 1 SP-heavy, Phase 3 CDR-heavy
@@ -874,7 +879,7 @@ function computeStrategy(prefs) {
     yearly, tenYr, tenYrTotalT, tenYrCost,
     spTotal, nbsTotal, cdrTotal,
     validProjects, roadmap,
-    mix, priceCat, ramp,
+    mix, priceCat, ramp, residualFrac,
   };
 }
 
@@ -5288,11 +5293,11 @@ function StrategyView({ prefs, strat }) {
       {/* KPI row */}
       <div style={{display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap: 0, border:'1px solid var(--color-border)', borderRadius: 8, background:'#fff', marginBottom: 24, overflow:'hidden'}}>
         <Kpi label="10-yr credits" val={fmt.k(strat.tenYrTotalT)} unit="tCO₂e"
-             sub={`${fmt.k(strat.tenYr[0].totalT)} in year 1 → ${fmt.k(strat.tenYr[9].totalT)} in year 10`}/>
+             sub={`${fmt.k(strat.tenYr[0].totalT)} now (pre-abatement) → ${fmt.k(strat.tenYr[9].totalT)} in yr 10`}/>
         <Kpi label="Avg annual cost" val={fmt.money(strat.tenYrCost / 10)} unit="USD / yr"
              sub={`avg $${Math.round(strat.tenYrCost/strat.tenYrTotalT)} / tCO₂e`}/>
-        <Kpi label="Coverage by target" val={targetCoverage + '%'} unit=""
-             sub={`${fmt.k(strat.yearly[strat.yearly.length-1].totalT)} tCO₂e in ${prefs.targetYear}`}/>
+        <Kpi label="Residual at target" val={`${Math.round((strat.residualFrac||0.1)*100)}%`} unit="of footprint"
+             sub={`${fmt.k(strat.yearly[strat.yearly.length-1].totalT)} tCO₂e / yr in ${prefs.targetYear}`}/>
         <Kpi label="Projects matched" val={strat.validProjects.length} unit=""
              sub={`across ${prefs.regions.length} regions`}
              last/>
