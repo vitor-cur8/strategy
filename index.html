@@ -692,41 +692,48 @@ function projectFitScore(p, prefs, methodKey) {
 function computeStrategy(prefs) {
   const annual = prefs.annualEmissions;
 
-  // Residual emissions model:
-  // Credits cover what can't yet be abated — 100% of emissions today,
-  // declining linearly as abatement progresses, reaching the irreducible
-  // residual at the target year.
+  // Dashboard strategy model (constant-volume, phase-shifting mix):
+  // Credits target the irreducible residual fraction every year — same volume,
+  // but the MIX shifts across 3 phases:
+  //   Phase 1 (2026-2031): Superpollutant leadership — fast, cheap, high-impact
+  //   Phase 2 (2031-2035): NBS bridge — nature-based scale-up alongside falling SP
+  //   Phase 3 (2035+):     Durable CDR — permanent removals dominate
   // SBTi NZ 2.0: ~10% residual. Non-SBTi: ~20% (less aggressive abatement plan).
   const targetYr = prefs.targetYear;
   const startYr = 2026;
   const residualFrac = prefs.sbtiAligned ? 0.10 : 0.20;
-  const ramp = (y) => {
-    const t = Math.max(0, Math.min(1, (y - startYr) / (targetYr - startYr)));
-    // Abatement goes from 0% now → (1 - residualFrac) by target year
-    const abatement = (1 - residualFrac) * t;
-    return 1 - abatement; // credits = remaining footprint after abatement
-  };
 
-  // Category mix by year — Phase 1 SP-heavy, Phase 3 CDR-heavy
-  // If superpollutants excluded, SP share redistributed to NBS/CDR.
+  // Constant annual credit volume — same tonnes every year (residual stays fixed)
+  const ramp = (y) => residualFrac;
+
+  // Phase-shifting mix based on superpollutants-dashboard model:
+  // SP declines linearly from 100% → 0% over the first 9 years (2026→2035)
+  // NBS grows from 0% → ~47.7% of total over the same window
+  // CDR fills the remainder, reaching ~52.3% by 2035 and growing thereafter
   const mix = (y) => {
-    const t = (y - startYr) / 24; // 0..1 across 2026-2050
-    let sp  = prefs.includeSuperpollutants ? Math.max(0, 0.60 - t * 0.80) : 0;
-    let cdr = Math.min(0.85, 0.10 + t * 0.75);
-    let nbs = Math.max(0.05, 1 - sp - cdr);
-    // normalise
-    const tot = sp + nbs + cdr;
-    return { SP: sp/tot, NBS: nbs/tot, CDR: cdr/tot };
+    // t = 0 at 2026, t = 1 at 2035 (SP fully phased out)
+    const t = Math.max(0, Math.min(1, (y - startYr) / 9));
+    if (!prefs.includeSuperpollutants) {
+      // No SP: use Phase 3 end-state split from day 1 (NBS 47%, CDR 53%)
+      // NBS ramps from 30% → 47% as CDR scales, mirroring the dashboard transition
+      const nbs = 0.30 + t * 0.177; // 30% → 47.7%
+      const cdr = 1 - nbs;          // 70% → 52.3%
+      return { SP: 0, NBS: nbs, CDR: cdr };
+    }
+    const sp  = Math.max(0, 1 - t);          // 100% → 0% over 9 years
+    const nbs = 0.477 * t;                    // 0% → 47.7% of total
+    const cdr = Math.max(0, 1 - sp - nbs);   // fills the remainder
+    return { SP: sp, NBS: nbs, CDR: cdr };
   };
 
-  // Price per tonne evolves: SP stable, NBS mild rise, CDR drops as scales.
-  // Scaled proportionally so the blended portfolio avg tracks prefs.pricePerTonne.
-  const priceScale = (prefs.pricePerTonne || 150) / 150;
+  // Prices match dashboard: SP flat at $100, NBS rises $55→$95, CDR rises $155→$250
+  // The blended price naturally starts low (all SP at $100) and rises as CDR scales.
+  const priceScale = (prefs.pricePerTonne || 100) / 100;
   const priceCat = (y, cat) => {
-    const t = (y - startYr) / 24;
-    if (cat === 'SP')  return (100 + t * 30)  * priceScale;
-    if (cat === 'NBS') return (55  + t * 45)  * priceScale;
-    if (cat === 'CDR') return (350 - t * 180) * priceScale; // $350 → $170 at default
+    const t = Math.max(0, Math.min(1, (y - startYr) / 9)); // 0→1 over 2026-2035
+    if (cat === 'SP')  return 100 * priceScale;                          // flat $100
+    if (cat === 'NBS') return (55 + t * 40) * priceScale;               // $55 → $95
+    if (cat === 'CDR') return (155 + t * 95) * priceScale;              // $155 → $250
     return 0;
   };
 
@@ -5364,26 +5371,26 @@ function StrategyView({ prefs, strat }) {
           years="2026–2031"
           title="Superpollutant leadership"
           accent="var(--cat-sp)"
-          desc="Methane, ODS and HFC credits deliver rapid avoided warming while durable CDR scales. Phase 1 is your compliance floor under SBTi NZ 2.0."
+          desc="Methane, ODS and HFC credits deliver rapid avoided warming at $100/t while durable CDR scales. Phase 1 is your compliance floor under SBTi NZ 2.0."
           stat={`${fmt.k(strat.spTotal)} tCO₂e`}
           statLabel="10-yr SP volume"
           active={prefs.includeSuperpollutants}
         />
         <PhaseCard
           phase="02"
-          years="2029–2038"
+          years="2031–2035"
           title="Nature-based bridge"
           accent="var(--cat-nbs)"
-          desc="Reforestation, mangroves and regenerative soil carry avoided warming as methane decays. Mid-priced, co-benefit rich."
+          desc="As superpollutants phase out, reforestation, mangroves and regenerative soil scale up. Mid-priced at $55–95/t, co-benefit rich."
           stat={`${fmt.k(strat.nbsTotal)} tCO₂e`}
           statLabel="10-yr NBS volume"
         />
         <PhaseCard
           phase="03"
-          years="2032–2050"
-          title="Durable removal"
+          years="2035–2050"
+          title="Durable CDR"
           accent="var(--cat-cdr)"
-          desc="Biochar, ERW and DAC ramp as supply matures and prices fall. This becomes the bulk of your portfolio post-2040."
+          desc="Biochar, ERW and DAC dominate from 2035 as supply matures. Permanent removal at $155–250/t forms the long-term core of your portfolio."
           stat={`${fmt.k(strat.cdrTotal)} tCO₂e`}
           statLabel="10-yr CDR volume"
         />
@@ -5398,7 +5405,7 @@ function StrategyView({ prefs, strat }) {
           <div>
             <Eyebrow style={{marginBottom: 8}}>Blended price — 2026 → 2050</Eyebrow>
             <div style={{fontSize: 18, fontWeight: 500}}>$ / tCO₂e</div>
-            <div style={{fontSize: 13, color:'var(--color-earth)', marginTop: 2}}>Weighted by category mix. CDR cost drops as supply scales.</div>
+            <div style={{fontSize: 13, color:'var(--color-earth)', marginTop: 2}}>Weighted by category mix. Starts low (SP at $100), rises as durable CDR scales.</div>
           </div>
           <div style={{textAlign:'right'}}>
             <div style={{fontFamily:'var(--font-mono)', fontSize: 10, letterSpacing:'.12em', color:'var(--color-umber)'}}>2050 AVG</div>
@@ -5468,8 +5475,8 @@ function PhaseLegend() {
   return (
     <div style={{display:'flex', gap: 20, marginTop: 20, paddingTop: 16, borderTop:'1px solid var(--color-border)', flexWrap:'wrap'}}>
       <LegendDot c="var(--cat-sp)"  label="Superpollutants" sub="Phase 1 · 2026-31"/>
-      <LegendDot c="var(--cat-nbs)" label="Nature-based"    sub="Phase 2 · 2029-38"/>
-      <LegendDot c="var(--cat-cdr)" label="Durable CDR"     sub="Phase 3 · 2032-50"/>
+      <LegendDot c="var(--cat-nbs)" label="Nature-based"    sub="Phase 2 · 2031-35"/>
+      <LegendDot c="var(--cat-cdr)" label="Durable CDR"     sub="Phase 3 · 2035-50"/>
     </div>
   );
 }
@@ -6007,7 +6014,7 @@ function PriceLine({ data }) {
       </svg>
       {hover && (() => {
         const d = data[hover.idx];
-        const phase = d.year < 2032 ? 'Phase 1 · Superpollutants' : d.year < 2039 ? 'Phase 2 · Nature-based bridge' : 'Phase 3 · Durable CDR';
+        const phase = d.year < 2031 ? 'Phase 1 · Superpollutants' : d.year < 2035 ? 'Phase 2 · NBS Bridge' : 'Phase 3 · Durable CDR';
         const delta = hover.idx > 0 ? d.avgPrice - data[0].avgPrice : 0;
         return (
           <div style={{
