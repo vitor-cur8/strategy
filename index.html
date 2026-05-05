@@ -640,6 +640,84 @@ const TEN_YEARS = YEARS.slice(0, 10);
 
 // ---- Strategy engine ---------------------------------------
 // Given prefs → returns per-year allocation by category and project line items.
+// ---- Sector → preferred DB method strings --------------------
+// Used to boost projects thematically relevant to the company's industry.
+const SECTOR_METHOD_AFFINITY = {
+  // Food, agriculture, land-use — soil, forests, land restoration
+  'Food, beverage & agriculture':   ['Soil Carbon', 'ARR', 'Ag Land Mgmt', 'Ecosystem Restoration', 'IFM', 'Biochar'],
+  'Retail & Consumer':              ['Soil Carbon', 'ARR', 'Ag Land Mgmt', 'Ecosystem Restoration', 'Biochar'],
+  'Retail':                         ['Soil Carbon', 'ARR', 'Ag Land Mgmt', 'Ecosystem Restoration'],
+  // Energy — BECCS, biogenic capture, ocean (scale matches)
+  'Energy & Utilities':             ['BECCS', 'Biogenic CO2', 'OAE', 'DAC', 'Enhanced Weathering'],
+  'Energy':                         ['BECCS', 'Biogenic CO2', 'OAE', 'DAC'],
+  // Manufacturing / industrials — BECCS, mineralisation, ERW
+  'Industrials & Manufacturing':    ['BECCS', 'Biochar', 'Enhanced Weathering', 'Ex-Situ Mineralisation'],
+  'Manufacturing':                  ['BECCS', 'Biochar', 'Enhanced Weathering'],
+  // Tech — DAC, ERW (precision, measurable)
+  'Technology':                     ['DAC', 'Enhanced Weathering', 'OAE', 'Biochar'],
+  'Services':                       ['DAC', 'Enhanced Weathering', 'ARR'],
+  // Finance — high-integrity, high-durability
+  'Financial Services — Global Bank':['DAC', 'BECCS', 'Biochar', 'OAE'],
+  'Financial Services':             ['DAC', 'BECCS', 'Biochar'],
+  // Healthcare / pharma — nature with co-benefits, biochar
+  'Healthcare & Pharma':            ['ARR', 'Ecosystem Restoration', 'Biochar', 'Enhanced Weathering'],
+  'Healthcare':                     ['ARR', 'Ecosystem Restoration', 'Biochar'],
+  // Infrastructure / real estate — soil, biobased materials
+  'Infrastructure':                 ['Soil Carbon', 'Biobased Materials', 'Biochar', 'ARR'],
+  'Real estate':                    ['Soil Carbon', 'Biobased Materials', 'ARR'],
+  // Transport / aviation — CORSIA-eligible methods only (ICAO Phase 2+)
+  // CORSIA EEUs: ARR, IFM, BECCS, DAC, OAE, Enhanced Weathering from approved programmes
+  'Transport':                      ['ARR', 'IFM', 'BECCS', 'DAC', 'Enhanced Weathering', 'OAE'],
+  'Aviation':                       ['ARR', 'IFM', 'BECCS', 'DAC', 'Enhanced Weathering', 'OAE'],
+  // Default fallback
+  'default':                        [],
+};
+
+// CORSIA-approved registries (ICAO Phase 1 + Phase 2 eligible programmes)
+// Source: ICAO CORSIA Eligible Emissions Units list
+const CORSIA_REGISTRIES = new Set([
+  'American Carbon Registry',     // ACR
+  'Architecture for REDD+ Transactions', // ART TREES
+  'Climate Action Reserve',       // CAR
+  'Gold Standard',
+  'Verra',                        // VCS
+  'Global Carbon Council',        // GCC
+  'Cercarbono',
+  'BioCarbon Fund ISFL',
+  'Equitable Earth',
+  'ACR',
+  'CAR',
+]);
+
+// CORSIA-compatible methods (ICAO-approved categories)
+const CORSIA_METHODS = new Set([
+  'ARR', 'IFM', 'Ecosystem Restoration', 'Soil Carbon', 'Ag Land Mgmt', // nature-based
+  'BECCS', 'Biogenic CO2', 'Biomass Storage',                             // bioenergy CDR
+  'DAC',                                                                  // direct air capture
+  'Enhanced Weathering', 'OAE', 'River Alkalinity',                      // geochemical
+]);
+
+// Helper: is this company in aviation/transport?
+function isAviationSector(prefs) {
+  const s = (prefs.industry || '').toLowerCase();
+  return s.includes('aviation') || s.includes('airline') || s.includes('transport');
+}
+
+// Country → region key (for HQ-based location scoring)
+const COUNTRY_TO_REGION = {
+  'United States':'NA','Canada':'NA','Mexico':'LATAM','Brazil':'LATAM','Argentina':'LATAM',
+  'Colombia':'LATAM','Chile':'LATAM','Peru':'LATAM','Ecuador':'LATAM',
+  'United Kingdom':'EU','Germany':'EU','France':'EU','Spain':'EU','Italy':'EU',
+  'Netherlands':'EU','Sweden':'EU','Norway':'EU','Denmark':'EU','Finland':'EU',
+  'Switzerland':'EU','Belgium':'EU','Austria':'EU','Poland':'EU','Portugal':'EU',
+  'South Africa':'AF','Nigeria':'AF','Kenya':'AF','Ghana':'AF','Ethiopia':'AF',
+  'Tanzania':'AF','Uganda':'AF','Rwanda':'AF','Senegal':'AF','Morocco':'AF',
+  'India':'APAC','China':'APAC','Japan':'APAC','South Korea':'APAC','Australia':'APAC',
+  'Indonesia':'APAC','Thailand':'APAC','Vietnam':'APAC','Philippines':'APAC',
+  'Bangladesh':'APAC','Pakistan':'APAC','Malaysia':'APAC','Singapore':'APAC',
+  'Saudi Arabia':'APAC','UAE':'APAC','Turkey':'EU','Türkiye':'EU',
+};
+
 // ---- Project fit scoring (company-aware) ---------------------
 // Returns a composite score so that different companies surface different
 // projects even when their regions + methods overlap.
@@ -647,11 +725,26 @@ const TEN_YEARS = YEARS.slice(0, 10);
 function projectFitScore(p, prefs, methodKey) {
   let score = (p.rank || 0) * 10; // base 0–60 from pipeline diligence rank
 
-  // 1. Industry preferred-methods boost
+  // 1. Industry profile preferred-methods boost (strategy-key level)
   const profile = INDUSTRY_PROFILES[prefs.industry] || INDUSTRY_PROFILES['default'];
   if ((profile.preferredMethods || []).includes(methodKey)) score += 20;
 
-  // 2. Budget fit — compare method list price to the company's target $/tCO₂
+  // 2. Sector-to-method thematic affinity (DB method string level)
+  // Finds the best matching affinity list for this company's industry string.
+  const industryStr = (prefs.industry || '').toLowerCase();
+  const affinityKey = Object.keys(SECTOR_METHOD_AFFINITY).find(k =>
+    k !== 'default' && industryStr.includes(k.toLowerCase())
+  ) || 'default';
+  const affinityMethods = SECTOR_METHOD_AFFINITY[affinityKey] || [];
+  if (affinityMethods.includes(p.m)) score += 25; // strong thematic match
+
+  // 3. Location match — project in same country or region as company HQ
+  const hq = (prefs.hq || prefs.country || '').trim();
+  const hqRegion = COUNTRY_TO_REGION[hq] || null;
+  if (hq && p.c && p.c.toLowerCase() === hq.toLowerCase()) score += 20; // exact country
+  else if (hqRegion && p.r === hqRegion) score += 10;                   // same region
+
+  // 4. Budget fit — compare method list price to the company's target $/tCO₂
   const m = METHODS[methodKey];
   if (m && prefs.pricePerTonne) {
     const ratio = m.price / prefs.pricePerTonne;
@@ -660,20 +753,29 @@ function projectFitScore(p, prefs, methodKey) {
     else if (ratio < 0.3) score -= 5;              // suspiciously cheap
   }
 
-  // 3. Durability match vs minDurability slider
+  // 5. Durability match vs minDurability slider
   const durNum = p.dur === '1000+' ? 1000 : parseInt(p.dur) || 30;
   const minDur = prefs.minDurability || 1;
   if (minDur >= 5 && durNum >= 1000) score += 18;
   else if (minDur >= 3 && durNum >= 100) score += 10;
   else if (minDur <= 1 && durNum < 100)  score += 5;
 
-  // 4. Registry quality for SBTi-committed companies
+  // 6. Registry quality for SBTi-committed companies
   if (prefs.sbtiAligned) {
     if (['Isometric', 'Puro', 'Gold Standard'].includes(p.reg)) score += 12;
     else if (p.reg === 'Verra') score += 6;
   }
 
-  // 5. Goals alignment
+  // 6b. CORSIA compliance — aviation/transport companies must use ICAO-approved credits
+  if (isAviationSector(prefs)) {
+    const corsiaReg = CORSIA_REGISTRIES.has(p.reg);
+    const corsiaMethod = CORSIA_METHODS.has(p.m);
+    if (corsiaReg && corsiaMethod) score += 30;  // fully CORSIA-eligible → strong preference
+    else if (corsiaMethod) score += 10;           // right method, registry unconfirmed
+    else score -= 20;                             // non-CORSIA method → strongly deprioritise
+  }
+
+  // 7. Goals alignment
   const goals = analyseGoals(prefs.goals || []);
   if (goals.durableOnly) {
     score += durNum >= 1000 ? 18 : -12;
@@ -681,10 +783,10 @@ function projectFitScore(p, prefs, methodKey) {
   if (goals.natureTheme && /ARR|IFM|Ecosystem|Mangrove|Soil|Ag Land/.test(p.m || '')) score += 10;
   if (goals.travelFocus && profile.travelHeavy) score += 6;
 
-  // 6. Emission size — large emitters prefer higher-volume (higher rank) projects
+  // 8. Emission size — large emitters prefer higher-volume (higher rank) projects
   if ((prefs.annualEmissions || 0) > 10_000_000 && p.rank >= 5) score += 8;
 
-  // 7. Deterministic company-specific tie-breaker
+  // 9. Deterministic company-specific tie-breaker
   // Same company always gets the same projects; different companies diverge.
   const orgHash = (prefs.orgName || '').split('').reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
   const projHash = (p.n || '').split('').reduce((a, c) => (a * 17 + c.charCodeAt(0)) >>> 0, 3);
@@ -779,35 +881,36 @@ function computeStrategy(prefs) {
     return prefs.regions.includes(m.region);
   });
 
-  // For each active method, pick top-ranked real projects (region-preferred, then global fallback)
-  // 2 per method gives enough variety for different companies to see different sets.
-  const PROJECTS_PER_METHOD = 2;
+  // For each active method, pick exactly 1 top-ranked project (region-preferred, then global fallback).
+  // usedDbMethods prevents the same method string appearing twice even if two strategy keys share it.
   const usedProjectNames = new Set();
+  const usedDbMethods = new Set();
   const selectedProjects = [];
 
   activeMethodKeys.forEach(key => {
     const dbMethods = METHOD_KEY_TO_DB[key] || [];
     if (!dbMethods.length) return;
 
+    // Only consider DB method strings not already represented in the portfolio
+    const availableMethods = dbMethods.filter(m => !usedDbMethods.has(m));
+    if (!availableMethods.length) return;
+
     // Region-matching candidates first, sorted by company-aware composite score
     const regional = REAL_PROJECTS.filter(p =>
-      dbMethods.includes(p.m) && prefs.regions.includes(p.r) && !usedProjectNames.has(p.n)
+      availableMethods.includes(p.m) && prefs.regions.includes(p.r) && !usedProjectNames.has(p.n)
     ).sort((a, b) => projectFitScore(b, prefs, key) - projectFitScore(a, prefs, key));
 
-    // Fallback: any geography if not enough regional
+    // Fallback: any geography
     const global = REAL_PROJECTS.filter(p =>
-      dbMethods.includes(p.m) && !prefs.regions.includes(p.r) && !usedProjectNames.has(p.n)
+      availableMethods.includes(p.m) && !prefs.regions.includes(p.r) && !usedProjectNames.has(p.n)
     ).sort((a, b) => projectFitScore(b, prefs, key) - projectFitScore(a, prefs, key));
 
-    const picks = regional.slice(0, PROJECTS_PER_METHOD);
-    if (picks.length < PROJECTS_PER_METHOD) {
-      picks.push(...global.slice(0, PROJECTS_PER_METHOD - picks.length));
+    const pick = regional[0] || global[0];
+    if (pick) {
+      usedProjectNames.add(pick.n);
+      usedDbMethods.add(pick.m);
+      selectedProjects.push({ ...pick, strategyMethod: key });
     }
-
-    picks.forEach(p => {
-      usedProjectNames.add(p.n);
-      selectedProjects.push({ ...p, strategyMethod: key });
-    });
   });
 
   // Select SP projects from SP_PROJECTS based on active SP methods
@@ -821,14 +924,16 @@ function computeStrategy(prefs) {
   if (prefs.includeSuperpollutants) {
     const activeSpKeys = Object.keys(METHODS).filter(k => METHODS[k].cat === 'SP' && prefs.regions.includes(METHODS[k].region));
     activeSpKeys.forEach(key => {
-      const dbTypes = SP_METHOD_TO_DB[key] || [];
+      const dbTypes = (SP_METHOD_TO_DB[key] || []).filter(m => !usedDbMethods.has(m));
+      if (!dbTypes.length) return;
       const regional = SP_PROJECTS.filter(p => dbTypes.includes(p.m) && prefs.regions.includes(p.r) && !usedProjectNames.has(p.n));
       const global   = SP_PROJECTS.filter(p => dbTypes.includes(p.m) && !prefs.regions.includes(p.r) && !usedProjectNames.has(p.n));
-      const picks = [...regional.slice(0, 1), ...global.slice(0, Math.max(0, 1 - regional.length))];
-      picks.forEach(p => {
-        usedProjectNames.add(p.n);
-        selectedProjects.push({ ...p, cat: 'sp', strategyMethod: key });
-      });
+      const pick = regional[0] || global[0];
+      if (pick) {
+        usedProjectNames.add(pick.n);
+        usedDbMethods.add(pick.m);
+        selectedProjects.push({ ...pick, cat: 'sp', strategyMethod: key });
+      }
     });
   }
 
@@ -6354,8 +6459,19 @@ const CAT_METHOD_COLORS = {nbs:'var(--color-earth-tint)', cdr:'var(--color-fire-
 
 const CAT_COLOR = { sp:'var(--color-water-accent)', nbs:'var(--color-earth-tint)', cdr:'var(--color-fire-accent)' };
 
+function CorsiaTag() {
+  return (
+    <span title="CORSIA-eligible (ICAO-approved registry + method)" style={{
+      display:'inline-flex', alignItems:'center', gap:3,
+      fontSize:9, fontFamily:'var(--font-mono)', letterSpacing:'.08em', textTransform:'uppercase',
+      background:'#1a3a5c', color:'#7ec8f4', padding:'2px 6px', borderRadius:3, flexShrink:0,
+    }}>✈ CORSIA</span>
+  );
+}
+
 function ProjectRow({ p, cols, showNote, onClick }) {
   const [hover, setHover] = React.useState(false);
+  const corsiaEligible = CORSIA_REGISTRIES.has(p.reg) && CORSIA_METHODS.has(p.m);
   return (
     <div style={{display:'grid', gridTemplateColumns: cols, padding:'12px 24px',
       borderBottom:'1px solid var(--color-border)', alignItems: showNote ? 'start' : 'center',
@@ -6364,7 +6480,10 @@ function ProjectRow({ p, cols, showNote, onClick }) {
       onMouseEnter={()=>setHover(true)} onMouseLeave={()=>setHover(false)}
       onClick={onClick}>
       <div style={{paddingRight:12}}>
-        <div style={{fontWeight:500}}>{p.n}</div>
+        <div style={{fontWeight:500, display:'flex', alignItems:'center', gap:8, flexWrap:'wrap'}}>
+          {p.n}
+          {corsiaEligible && <CorsiaTag/>}
+        </div>
         {showNote && p.note && <div style={{fontSize:11, color:'var(--color-earth)', lineHeight:1.5, marginTop:3}}>{p.note}</div>}
       </div>
       <div style={{color:'var(--color-earth)', fontSize:12}}>{p.s || '—'}</div>
