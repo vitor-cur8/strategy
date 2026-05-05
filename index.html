@@ -469,10 +469,10 @@ const METHODS = {
   lfg:  { key: 'lfg',   name: 'Landfill gas methane',    cat: 'SP',   price: 18,  region: 'LATAM', durability: 1, color: 'var(--method-superpollutant)' },
   ldar: { key: 'ldar',  name: 'Leak detection & repair', cat: 'SP',   price: 35,  region: 'APAC',  durability: 1, color: 'var(--method-superpollutant)' },
 
-  // Nature-based removals
-  arr:    { key: 'arr',    name: 'Reforestation',        cat: 'NBS',  price: 55,  region: 'LATAM', durability: 3, color: 'var(--method-arr)' },
-  mang:   { key: 'mang',   name: 'Mangrove restoration', cat: 'NBS',  price: 75,  region: 'APAC',  durability: 3, color: 'var(--method-mangroves)' },
-  soil:   { key: 'soil',   name: 'Regenerative soil',    cat: 'NBS',  price: 42,  region: 'EU',    durability: 2, color: 'var(--method-biochar)' },
+  // Nature-based Removals (active CO₂ sequestration — NOT avoidance/protection credits)
+  arr:  { key: 'arr',  name: 'Reforestation / ARR',    cat: 'NBS',  price: 55,  region: 'LATAM', durability: 3, color: 'var(--method-arr)' },
+  mang: { key: 'mang', name: 'Mangrove & wetland rest.',cat: 'NBS',  price: 75,  region: 'APAC',  durability: 3, color: 'var(--method-arr)' },
+  soil: { key: 'soil', name: 'Soil carbon sequestrat.',cat: 'NBS',  price: 45,  region: 'EU',    durability: 3, color: 'var(--method-arr)' },
 
   // Durable CDR
   biochar:{ key: 'biochar',name: 'Biochar',              cat: 'CDR',  price: 160, region: 'EU',   durability: 5, color: 'var(--method-biochar)' },
@@ -483,9 +483,9 @@ const METHODS = {
 };
 
 const CATEGORIES = {
-  SP:  { key: 'SP',  label: 'Superpollutants',       short: 'Super',  color: 'var(--cat-sp)',  desc: 'Immediate avoided warming — methane, ODS, HFCs.' },
-  NBS: { key: 'NBS', label: 'Nature-based removals', short: 'NBS',    color: 'var(--cat-nbs)', desc: 'Forests, mangroves, regen soil. Bridging durability.' },
-  CDR: { key: 'CDR', label: 'Durable CDR',           short: 'CDR',    color: 'var(--cat-cdr)', desc: 'Permanent removals — biochar, ERW, DAC, ocean, BECCS.' },
+  SP:  { key: 'SP',  label: 'Superpollutants',         short: 'Super', color: 'var(--cat-sp)',  desc: 'Immediate avoided warming — methane, ODS, HFCs. Phase 1.' },
+  NBS: { key: 'NBS', label: 'Nature-based Removals',   short: 'NBS',   color: 'var(--cat-nbs)', desc: 'Active CO₂ sequestration — reforestation (ARR), wetland/mangrove restoration, soil carbon. Removal credits only, no avoidance.' },
+  CDR: { key: 'CDR', label: 'Durable CDR',             short: 'CDR',   color: 'var(--cat-cdr)', desc: 'Permanent removals — biochar, ERW, DAC, ocean, BECCS.' },
 };
 
 const REGIONS = [
@@ -696,49 +696,46 @@ function projectFitScore(p, prefs, methodKey) {
 function computeStrategy(prefs) {
   const annual = prefs.annualEmissions;
 
-  // Dashboard strategy model (constant-volume, phase-shifting mix):
-  // Credits target the irreducible residual fraction every year — same volume,
-  // but the MIX shifts across 3 phases:
-  //   Phase 1 (2026-2031): Superpollutant leadership — fast, cheap, high-impact
-  //   Phase 2 (2031-2035): NBS bridge — nature-based scale-up alongside falling SP
-  //   Phase 3 (2035+):     Durable CDR — permanent removals dominate
-  // SBTi NZ 2.0: ~10% residual. Non-SBTi: ~20% (less aggressive abatement plan).
+  // CUR8 strategy model: Superpollutants → Nature-based Removals → Durable CDR.
+  // Three phases (removal credits only — no avoidance/protection credits):
+  //   Phase 1 (2026-2031): SP dominates (methane, ODS, HFCs)
+  //   Phase 2 (2031-2035): NBS removals bridge (reforestation, mangroves)
+  //   Phase 3 (2035+):     100% Durable CDR — permanent removals only
+  // Credits cover the irreducible residual at constant annual volume.
+  // SBTi NZ 2.0: ~10% residual. Non-SBTi: ~20%.
   const targetYr = prefs.targetYear;
   const startYr = 2026;
   const residualFrac = prefs.sbtiAligned ? 0.10 : 0.20;
 
-  // Constant annual credit volume — same tonnes every year (residual stays fixed)
+  // Constant annual credit volume — same tonnes every year
   const ramp = (y) => residualFrac;
 
-  // Phase-shifting mix based on superpollutants-dashboard model:
-  // SP declines linearly from 100% → 0% over the first 9 years (2026→2035)
-  // NBS grows from 0% → ~47.7% of total over the same window
-  // CDR fills the remainder, reaching ~52.3% by 2035 and growing thereafter
+  // Three-phase mix:
+  //   2026-2031 (t=0→0.55): SP 100%→0%, NBS grows then declines, CDR grows
+  //   2031-2035 (t=0.55→1): NBS peaks then hands off to CDR
+  //   2035+     (t≥1):      100% CDR
   const mix = (y) => {
-    // t = 0 at 2026, t = 1 at 2035 (SP fully phased out)
     const t = Math.max(0, Math.min(1, (y - startYr) / 9));
     if (!prefs.includeSuperpollutants) {
-      // No SP: use Phase 3 end-state split from day 1 (NBS 47%, CDR 53%)
-      // NBS ramps from 30% → 47% as CDR scales, mirroring the dashboard transition
-      const nbs = 0.30 + t * 0.177; // 30% → 47.7%
-      const cdr = 1 - nbs;          // 70% → 52.3%
-      return { SP: 0, NBS: nbs, CDR: cdr };
+      // No SP: NBS bridge 2026-2031 then CDR
+      const nbsFrac = Math.max(0, 1 - t * 2);   // 100%→0% over first half
+      const cdrFrac = 1 - nbsFrac;
+      return { SP: 0, NBS: nbsFrac, CDR: cdrFrac };
     }
-    const sp  = Math.max(0, 1 - t);          // 100% → 0% over 9 years
-    const nbs = 0.477 * t;                    // 0% → 47.7% of total
-    const cdr = Math.max(0, 1 - sp - nbs);   // fills the remainder
-    return { SP: sp, NBS: nbs, CDR: cdr };
+    // Full three-phase curve
+    const sp  = Math.max(0, 1 - t * 2);          // 100%→0% by midpoint (2031)
+    const cdr = Math.max(0, t * 2 - 1);           // 0→100% in second half (2031→2035)
+    const nbs = 1 - sp - cdr;                     // peaks in the middle (~2031)
+    return { SP: sp, NBS: Math.max(0, nbs), CDR: cdr };
   };
 
-  // Prices match dashboard: SP flat at $100, NBS rises $55→$95, CDR rises $155→$250
-  // The blended price naturally starts low (all SP at $100) and rises as CDR scales.
-  // Note: pricePerTonne preference is used for project scoring but not applied here —
-  // category prices are already calibrated to market data.
+  // Prices: SP flat at $100/t, NBS $55→$95/t as quality premiums grow,
+  // CDR rises $155→$250/t as scale and technology mature.
   const priceCat = (y, cat) => {
-    const t = Math.max(0, Math.min(1, (y - startYr) / 9)); // 0→1 over 2026-2035
-    if (cat === 'SP')  return 100;                 // flat $100/t
-    if (cat === 'NBS') return 55 + t * 40;        // $55 → $95/t
-    if (cat === 'CDR') return 155 + t * 95;       // $155 → $250/t
+    const t = Math.max(0, Math.min(1, (y - startYr) / 9));
+    if (cat === 'SP')  return 100;           // flat $100/t
+    if (cat === 'NBS') return 55 + t * 40;  // $55 → $95/t
+    if (cat === 'CDR') return 155 + t * 95; // $155 → $250/t
     return 0;
   };
 
@@ -3705,7 +3702,7 @@ function StepBudget({ prefs, setPrefs }) {
           </div>
           <Rule style={{margin:'24px 0', background:'rgba(255,255,255,.12)'}}/>
           <div style={{fontSize: 13, lineHeight: 1.5, opacity: .7}}>
-            Numbers update live as you change preferences. Reflects method mix across Phase 1 (SP), Phase 2 (NBS bridge) and Phase 3 (durable CDR).
+            Numbers update live as you change preferences. Reflects method mix across Phase 1 (SP), Phase 2 (NBS removals bridge) and Phase 3 (durable CDR).
           </div>
         </Card>
       </div>
@@ -5426,7 +5423,7 @@ function StrategyView({ prefs, strat }) {
           years="2031–2035"
           title="Nature-based bridge"
           accent="var(--cat-nbs)"
-          desc="As superpollutants phase out, reforestation, mangroves and regenerative soil scale up. Mid-priced at $55–95/t, co-benefit rich."
+          desc="Reforestation (ARR), wetland/mangrove restoration, and soil carbon sequestration actively remove CO₂. Removal credits only — no forest protection or avoidance. $45–95/t with strong biodiversity co-benefits."
           stat={`${fmt.k(strat.nbsTotal)} tCO₂e`}
           statLabel="10-yr NBS volume"
         />
@@ -5520,7 +5517,7 @@ function PhaseLegend() {
   return (
     <div style={{display:'flex', gap: 20, marginTop: 20, paddingTop: 16, borderTop:'1px solid var(--color-border)', flexWrap:'wrap'}}>
       <LegendDot c="var(--cat-sp)"  label="Superpollutants" sub="Phase 1 · 2026-31"/>
-      <LegendDot c="var(--cat-nbs)" label="Nature-based"    sub="Phase 2 · 2031-35"/>
+      <LegendDot c="var(--cat-nbs)" label="Nature-based Removals" sub="Phase 2 · 2031-35"/>
       <LegendDot c="var(--cat-cdr)" label="Durable CDR"     sub="Phase 3 · 2035-50"/>
     </div>
   );
