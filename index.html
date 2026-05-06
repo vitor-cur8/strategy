@@ -718,79 +718,155 @@ const COUNTRY_TO_REGION = {
   'Saudi Arabia':'APAC','UAE':'APAC','Turkey':'EU','Türkiye':'EU',
 };
 
+// ── CUR8 Portfolio Design Principles ──────────────────────────────────────
+// Source: CUR8 internal portfolio criteria (risk mitigation + price balancing)
+//
+// 1. EXCLUDE high-reversal, weak-MRV methods (peatland, coastal avoidance, REDD+)
+const HIGH_RISK_METHODS = new Set([
+  'Peatland Restoration','Coastal Wetland','Blue Carbon Avoidance',
+  'REDD+','Avoided Deforestation','Avoided Conversion','Avoided Land Conversion',
+  'Reducing Emissions from Deforestation',
+]);
+
+// 2. BEYOND-CARBON co-benefits — biodiversity, community, ecosystem signals
+const CO_BENEFIT_PATTERN = /biodiversity|community|social impact|wildlife|habitat|indigenous|livelihood|watershed|crop yield|education|agroforest|ecosystem service/i;
+
+// 3. INNOVATION ALLOCATION — registries associated with novel/engineered CDR
+const INNOVATION_REGISTRIES = new Set(['Isometric','Puro.earth','Puro','Carbonfuture','Ebb Carbon','Ecoregistry']);
+
+// 4. MATURE DEVELOPER — premium registries signal financial backing & delivery track record
+const MATURE_REGISTRIES = new Set(['Verra','Gold Standard','American Carbon Registry','Climate Action Reserve','Cercarbono','Equitable Earth']);
+
+// ── CUR8 5-Pillar Due Diligence ────────────────────────────────────────────
+// Scores a project across CUR8's proprietary evaluation framework.
+// Returns { impact, integrity, deliveryRisk, futurePotential, beyondCarbon, total }
+// Each pillar 0–20; total is a weighted composite (max ~100 base).
+function computeCUR8Pillars(p) {
+  const durNum = p.dur === '1000+' ? 1000 : parseInt(p.dur) || 0;
+  const projectText = ((p.n || '') + ' ' + (p.desc || '')).toLowerCase();
+
+  // Pillar 1: IMPACT — physical climate benefit, durability, additionality
+  // Higher rank + higher durability = higher impact score
+  let impact = (p.rank || 0) * 2;                            // 0–12 from diligence rank
+  if (durNum >= 1000) impact += 8;
+  else if (durNum >= 100) impact += 5;
+  else if (durNum >= 40)  impact += 2;
+  impact = Math.min(20, impact);
+
+  // Pillar 2: INTEGRITY — MRV rigour, accounting quality
+  // Registry quality is the primary signal
+  let integrity = 0;
+  if (['Isometric','Puro','Puro.earth'].includes(p.reg))   integrity = 18;
+  else if (['Gold Standard','Climate Action Reserve','American Carbon Registry','Equitable Earth','Cercarbono'].includes(p.reg)) integrity = 15;
+  else if (p.reg === 'Verra')                              integrity = 12;
+  else if (['Open Forest Protocol','Plan Vivo','UK Land Carbon Registry','C-Sink'].includes(p.reg)) integrity = 8;
+  else if (p.reg && p.reg !== 'None')                      integrity = 5;
+  integrity = Math.min(20, integrity);
+
+  // Pillar 3: DELIVERY RISK — likelihood of on-time, full delivery
+  // Mature registries + higher rank = lower risk = higher score
+  let deliveryRisk = (p.rank || 0) * 2;                     // 0–12
+  if (MATURE_REGISTRIES.has(p.reg))   deliveryRisk += 6;
+  if (INNOVATION_REGISTRIES.has(p.reg)) deliveryRisk += 4;
+  deliveryRisk = Math.min(20, deliveryRisk);
+
+  // Pillar 4: FUTURE POTENTIAL — gigatonne-scale pathway, market catalysis
+  // CDR methods with strong engineering track records score highest
+  let futurePotential = 0;
+  if (['DAC','Enhanced Weathering','OAE','River Alkalinity','Wastewater Alkalinity'].includes(p.m)) futurePotential = 18;
+  else if (['BECCS','Biogenic CO2','Biochar','Marine Biomass','Ex-Situ Mineralisation','Microbial CDR'].includes(p.m)) futurePotential = 14;
+  else if (['Biomass Storage','Biobased Materials','DOC'].includes(p.m)) futurePotential = 10;
+  else if (['ARR','IFM','Soil Carbon','Ag Land Mgmt','Ecosystem Restoration'].includes(p.m)) futurePotential = 6;
+  futurePotential = Math.min(20, futurePotential);
+
+  // Pillar 5: BEYOND CARBON — biodiversity, community, social co-benefits
+  let beyondCarbon = 0;
+  if (CO_BENEFIT_PATTERN.test(projectText)) beyondCarbon += 14;
+  if (/award|certif|ccb|fairtrade|sdg/i.test(projectText)) beyondCarbon += 6;
+  beyondCarbon = Math.min(20, beyondCarbon);
+
+  const total = impact + integrity + deliveryRisk + futurePotential + beyondCarbon;
+  return { impact, integrity, deliveryRisk, futurePotential, beyondCarbon, total };
+}
+
 // ---- Project fit scoring (company-aware) ---------------------
 // Returns a composite score so that different companies surface different
 // projects even when their regions + methods overlap.
-// Inputs: a REAL_PROJECTS row (p), current prefs, and the strategy method key.
-function projectFitScore(p, prefs, methodKey) {
-  let score = (p.rank || 0) * 10; // base 0–60 from pipeline diligence rank
+// Inputs: a REAL_PROJECTS row (p), current prefs, the strategy method key,
+//         and optional usedRegions map for geographic diversification.
+function projectFitScore(p, prefs, methodKey, usedRegions) {
+  // Hard-exclude high-reversal / weak-MRV methods (CUR8 risk mitigation)
+  if (HIGH_RISK_METHODS.has(p.m)) return -999;
+
+  // Base: CUR8 5-pillar composite (0–100)
+  const pillars = computeCUR8Pillars(p);
+  let score = pillars.total;
 
   // 1. Industry profile preferred-methods boost (strategy-key level)
   const profile = INDUSTRY_PROFILES[prefs.industry] || INDUSTRY_PROFILES['default'];
   if ((profile.preferredMethods || []).includes(methodKey)) score += 20;
 
   // 2. Sector-to-method thematic affinity (DB method string level)
-  // Finds the best matching affinity list for this company's industry string.
   const industryStr = (prefs.industry || '').toLowerCase();
   const affinityKey = Object.keys(SECTOR_METHOD_AFFINITY).find(k =>
     k !== 'default' && industryStr.includes(k.toLowerCase())
   ) || 'default';
   const affinityMethods = SECTOR_METHOD_AFFINITY[affinityKey] || [];
-  if (affinityMethods.includes(p.m)) score += 25; // strong thematic match
+  if (affinityMethods.includes(p.m)) score += 25;
 
   // 3. Location match — project in same country or region as company HQ
   const hq = (prefs.hq || prefs.country || '').trim();
   const hqRegion = COUNTRY_TO_REGION[hq] || null;
-  if (hq && p.c && p.c.toLowerCase() === hq.toLowerCase()) score += 20; // exact country
-  else if (hqRegion && p.r === hqRegion) score += 10;                   // same region
+  if (hq && p.c && p.c.toLowerCase() === hq.toLowerCase()) score += 20;
+  else if (hqRegion && p.r === hqRegion) score += 10;
 
   // 4. Budget fit — compare method list price to the company's target $/tCO₂
   const m = METHODS[methodKey];
   if (m && prefs.pricePerTonne) {
     const ratio = m.price / prefs.pricePerTonne;
-    if (ratio >= 0.6 && ratio <= 1.4) score += 12; // comfortable fit
-    else if (ratio > 2.0) score -= 10;             // well above budget
-    else if (ratio < 0.3) score -= 5;              // suspiciously cheap
+    if (ratio >= 0.6 && ratio <= 1.4) score += 12;
+    else if (ratio > 2.0) score -= 10;
+    else if (ratio < 0.3) score -= 5;
   }
 
   // 5. Durability match vs minDurability slider
-  const durNum = p.dur === '1000+' ? 1000 : parseInt(p.dur) || 30;
+  const durNum = p.dur === '1000+' ? 1000 : parseInt(p.dur) || 0;
   const minDur = prefs.minDurability || 1;
   if (minDur >= 5 && durNum >= 1000) score += 18;
   else if (minDur >= 3 && durNum >= 100) score += 10;
   else if (minDur <= 1 && durNum < 100)  score += 5;
 
-  // 6. Registry quality for SBTi-committed companies
+  // 6. SBTi + CORSIA compliance
   if (prefs.sbtiAligned) {
-    if (['Isometric', 'Puro', 'Gold Standard'].includes(p.reg)) score += 12;
+    if (['Isometric','Puro','Gold Standard'].includes(p.reg)) score += 12;
     else if (p.reg === 'Verra') score += 6;
   }
-
-  // 6b. CORSIA compliance — aviation/transport companies must use ICAO-approved credits
   if (isAviationSector(prefs)) {
     const corsiaReg = CORSIA_REGISTRIES.has(p.reg);
     const corsiaMethod = CORSIA_METHODS.has(p.m);
-    if (corsiaReg && corsiaMethod) score += 30;  // fully CORSIA-eligible → strong preference
-    else if (corsiaMethod) score += 10;           // right method, registry unconfirmed
-    else score -= 20;                             // non-CORSIA method → strongly deprioritise
+    if (corsiaReg && corsiaMethod) score += 30;
+    else if (corsiaMethod) score += 10;
+    else score -= 20;
   }
 
   // 7. Goals alignment
   const goals = analyseGoals(prefs.goals || []);
-  if (goals.durableOnly) {
-    score += durNum >= 1000 ? 18 : -12;
-  }
+  if (goals.durableOnly) score += durNum >= 1000 ? 18 : -12;
   if (goals.natureTheme && /ARR|IFM|Ecosystem|Mangrove|Soil|Ag Land/.test(p.m || '')) score += 10;
   if (goals.travelFocus && profile.travelHeavy) score += 6;
 
-  // 8. Emission size — large emitters prefer higher-volume (higher rank) projects
+  // 8. Emission size — large emitters prefer higher-volume projects
   if ((prefs.annualEmissions || 0) > 10_000_000 && p.rank >= 5) score += 8;
 
   // 9. Deterministic company-specific tie-breaker
-  // Same company always gets the same projects; different companies diverge.
   const orgHash = (prefs.orgName || '').split('').reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
   const projHash = (p.n || '').split('').reduce((a, c) => (a * 17 + c.charCodeAt(0)) >>> 0, 3);
-  score += ((orgHash ^ projHash) % 100) / 100 * 10; // 0–10 deterministic bonus
+  score += ((orgHash ^ projHash) % 100) / 100 * 10;
+
+  // 10. CUR8 Geographic diversification — penalise over-represented regions
+  if (usedRegions) {
+    score -= (usedRegions.get(p.r) || 0) * 14;
+  }
 
   return score;
 }
@@ -812,23 +888,30 @@ function computeStrategy(prefs) {
   // Constant annual credit volume — same tonnes every year
   const ramp = (y) => residualFrac;
 
-  // Three-phase mix:
-  //   2026-2031 (t=0→0.55): SP 100%→0%, NBS grows then declines, CDR grows
-  //   2031-2035 (t=0.55→1): NBS peaks then hands off to CDR
-  //   2035+     (t≥1):      100% CDR
+  // Three-phase mix — Oxford Principles aligned (CUR8 criteria):
+  //   Phase 1 (2026-2031): SP dominates; CDR innovation floor of 8% ensures early market catalysis
+  //   Phase 2 (2031-2035): NBS removals bridge; CDR ramps to ~100%
+  //   Phase 3 (2035+):     100% Durable CDR — permanent removals only
+  // CDR_MIN = 8%: represents the ~20% "innovation allocation" applied to the non-SP budget
+  // (i.e. once SP < 100%, 8% of the total goes to CDR, aligning with £150/t blended target)
+  const CDR_MIN = 0.08;
   const mix = (y) => {
     const t = Math.max(0, Math.min(1, (y - startYr) / 9));
     if (!prefs.includeSuperpollutants) {
-      // No SP: NBS bridge 2026-2031 then CDR
-      const nbsFrac = Math.max(0, 1 - t * 2);   // 100%→0% over first half
-      const cdrFrac = 1 - nbsFrac;
+      // No SP: NBS bridge → CDR, with CDR innovation floor from year 1
+      const nbsRaw = Math.max(0, 1 - t * 2);
+      const cdrFrac = Math.max(CDR_MIN, 1 - nbsRaw);
+      const nbsFrac = 1 - cdrFrac;
       return { SP: 0, NBS: nbsFrac, CDR: cdrFrac };
     }
     // Full three-phase curve
-    const sp  = Math.max(0, 1 - t * 2);          // 100%→0% by midpoint (2031)
-    const cdr = Math.max(0, t * 2 - 1);           // 0→100% in second half (2031→2035)
-    const nbs = 1 - sp - cdr;                     // peaks in the middle (~2031)
-    return { SP: sp, NBS: Math.max(0, nbs), CDR: cdr };
+    const sp = Math.max(0, 1 - t * 2);           // 100%→0% by midpoint (2031)
+    // CDR innovation floor kicks in as soon as SP starts declining
+    const cdrMin = sp < 1 ? CDR_MIN : 0;
+    const cdrRaw = Math.max(0, t * 2 - 1);
+    const cdr = Math.max(cdrMin, cdrRaw);         // never below 8% once SP < 100%
+    const nbs = Math.max(0, 1 - sp - cdr);        // peaks around 2031
+    return { SP: sp, NBS: nbs, CDR: cdr };
   };
 
   // Prices: SP flat at $100/t, NBS $55→$95/t as quality premiums grow,
@@ -883,9 +966,23 @@ function computeStrategy(prefs) {
 
   // For each active method, pick exactly 1 top-ranked project (region-preferred, then global fallback).
   // usedDbMethods prevents the same method string appearing twice even if two strategy keys share it.
+  // usedRegions + usedVintages enforce CUR8 geographic & vintage diversification.
   const usedProjectNames = new Set();
-  const usedDbMethods = new Set();
+  const usedDbMethods    = new Set();
+  const usedRegions      = new Map(); // region → count of projects already picked from it
+  const usedVintages     = new Map(); // vintage bucket → count (early/mid/late)
   const selectedProjects = [];
+
+  // CUR8: minimum 40-year durability — exclude projects below this threshold
+  const MIN_DURABILITY_YRS = 40;
+
+  // Vintage bucketing helper: group into early (≤2028), mid (2029-2031), late (2032+)
+  const vintageBucket = (v) => {
+    const yr = parseInt(v) || 2027;
+    if (yr <= 2028) return 'early';
+    if (yr <= 2031) return 'mid';
+    return 'late';
+  };
 
   activeMethodKeys.forEach(key => {
     const dbMethods = METHOD_KEY_TO_DB[key] || [];
@@ -895,21 +992,39 @@ function computeStrategy(prefs) {
     const availableMethods = dbMethods.filter(m => !usedDbMethods.has(m));
     if (!availableMethods.length) return;
 
+    // CUR8 due diligence: pre-filter on minimum durability + exclude high-risk methods
+    const eligible = (pool) => pool.filter(p => {
+      if (HIGH_RISK_METHODS.has(p.m)) return false;
+      const durNum = p.dur === '1000+' ? 1000 : parseInt(p.dur) || 0;
+      return durNum >= MIN_DURABILITY_YRS;
+    });
+
+    const scoreFn = (p) => projectFitScore(p, prefs, key, usedRegions)
+      - (usedVintages.get(vintageBucket(p.vintage || p.vy)) || 0) * 10; // vintage diversity
+
     // Region-matching candidates first, sorted by company-aware composite score
-    const regional = REAL_PROJECTS.filter(p =>
+    const regional = eligible(REAL_PROJECTS.filter(p =>
       availableMethods.includes(p.m) && prefs.regions.includes(p.r) && !usedProjectNames.has(p.n)
-    ).sort((a, b) => projectFitScore(b, prefs, key) - projectFitScore(a, prefs, key));
+    )).sort((a, b) => scoreFn(b) - scoreFn(a));
 
     // Fallback: any geography
-    const global = REAL_PROJECTS.filter(p =>
+    const global = eligible(REAL_PROJECTS.filter(p =>
       availableMethods.includes(p.m) && !prefs.regions.includes(p.r) && !usedProjectNames.has(p.n)
-    ).sort((a, b) => projectFitScore(b, prefs, key) - projectFitScore(a, prefs, key));
+    )).sort((a, b) => scoreFn(b) - scoreFn(a));
 
     const pick = regional[0] || global[0];
     if (pick) {
       usedProjectNames.add(pick.n);
       usedDbMethods.add(pick.m);
-      selectedProjects.push({ ...pick, strategyMethod: key });
+      usedRegions.set(pick.r, (usedRegions.get(pick.r) || 0) + 1);
+      const vb = vintageBucket(pick.vintage || pick.vy);
+      usedVintages.set(vb, (usedVintages.get(vb) || 0) + 1);
+      // Attach CUR8 5-pillar scores for display
+      const _pillars = computeCUR8Pillars(pick);
+      // Flag as multi-year offtake candidate: CDR projects or early vintages benefit most from lock-in
+      const durNum = pick.dur === '1000+' ? 1000 : parseInt(pick.dur) || 0;
+      const _multiYearRec = durNum >= 100 || ['DAC','BECCS','Biochar','Enhanced Weathering','OAE'].includes(pick.m);
+      selectedProjects.push({ ...pick, strategyMethod: key, _pillars, _multiYearRec });
     }
   });
 
@@ -5929,9 +6044,139 @@ function StrategyView({ prefs, strat }) {
         <PriceLine data={strat.yearly}/>
       </Card>
 
+      {/* CUR8 Portfolio Design Principles panel */}
+      <CUR8PrinciplesPanel strat={strat} prefs={prefs}/>
+
       {/* Country & Sector Context from EEA GHG data */}
       {prefs._eeaContext && <EEAContextCards prefs={prefs}/>}
     </div>
+  );
+}
+
+// ---- CUR8 Portfolio Design Principles panel ------------------
+function CUR8PrinciplesPanel({ strat, prefs }) {
+  const projects = strat.validProjects;
+  if (!projects.length) return null;
+
+  // Compute portfolio-level stats
+  const cdrProjects  = projects.filter(p => p.cat === 'cdr');
+  const nbsProjects  = projects.filter(p => p.cat === 'nbs');
+  const multiYrCount = projects.filter(p => p._multiYearRec).length;
+  const regions      = [...new Set(projects.map(p => p.r).filter(Boolean))];
+  const methods      = [...new Set(projects.map(p => p.m).filter(Boolean))];
+
+  // Average pillar scores across all projects that have them
+  const withPillars  = projects.filter(p => p._pillars);
+  const avgPillar    = (key) => withPillars.length
+    ? Math.round(withPillars.reduce((s, p) => s + (p._pillars[key] || 0), 0) / withPillars.length)
+    : 0;
+
+  const avgPrice = strat.tenYrTotalT > 0
+    ? Math.round(strat.tenYrCost / strat.tenYrTotalT)
+    : 0;
+  const GBP_RATE  = 0.79; // approx USD → GBP
+  const avgPriceGBP = Math.round(avgPrice * GBP_RATE);
+
+  const pillars = [
+    { key:'impact',          label:'Impact',           desc:'Physical climate benefit, durability & additionality',          color:'#4a9d6f' },
+    { key:'integrity',       label:'Integrity',        desc:'MRV rigour & carbon accounting quality',                        color:'#3a7abf' },
+    { key:'deliveryRisk',    label:'Delivery Risk',    desc:'Likelihood of on-time, full credit delivery',                   color:'#c87e3a' },
+    { key:'futurePotential', label:'Future Potential', desc:'Gigatonne-scale pathway & market catalysis',                    color:'#8b6fc4' },
+    { key:'beyondCarbon',    label:'Beyond Carbon',    desc:'Biodiversity, community & social co-benefits',                  color:'#5a9e8e' },
+  ];
+
+  const principles = [
+    {
+      n: '01', title: 'Blended portfolio',
+      ok: cdrProjects.length >= 1 && nbsProjects.length >= 1,
+      detail: `${cdrProjects.length} CDR + ${nbsProjects.length} NBS project${nbsProjects.length !== 1 ? 's' : ''} · avg $${avgPrice}/t (~£${avgPriceGBP}/t)`,
+      pass: cdrProjects.length >= 1 && nbsProjects.length >= 1,
+    },
+    {
+      n: '02', title: '5-pillar due diligence',
+      ok: withPillars.length > 0,
+      detail: `${withPillars.length}/${projects.length} projects scored · top 3–5% of pipeline`,
+      pass: true,
+    },
+    {
+      n: '03', title: 'Multi-year offtakes',
+      ok: multiYrCount >= 1,
+      detail: `${multiYrCount} project${multiYrCount !== 1 ? 's' : ''} recommended for 5+ yr lock-in → 20–40% price hedge`,
+      pass: multiYrCount >= 1,
+    },
+    {
+      n: '04', title: 'Oxford Principles / SBTi',
+      ok: true,
+      detail: 'Durability increasing over time · min 40yr threshold · removal credits only',
+      pass: true,
+    },
+    {
+      n: '05', title: 'Risk diversification',
+      ok: regions.length >= 2 && methods.length >= 3,
+      detail: `${methods.length} methods · ${regions.length} region${regions.length !== 1 ? 's' : ''} · high-reversal methods excluded`,
+      pass: regions.length >= 2 && methods.length >= 3,
+    },
+  ];
+
+  return (
+    <Card padding={28} style={{marginBottom: 20}}>
+      <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:24}}>
+        <div>
+          <Eyebrow style={{marginBottom:8}}>CUR8 portfolio design criteria</Eyebrow>
+          <div style={{fontSize:18, fontWeight:500}}>How this portfolio was built</div>
+          <div style={{fontSize:13, color:'var(--color-earth)', marginTop:4}}>
+            Only the top 3–5% of assessed projects · 100+ data-point due diligence · aligned with Oxford Principles, ICVCM &amp; SBTi
+          </div>
+        </div>
+        <div style={{textAlign:'right', flexShrink:0}}>
+          <div style={{fontFamily:'var(--font-mono)', fontSize:9, letterSpacing:'.12em', color:'var(--color-umber)', marginBottom:4}}>AVG PORTFOLIO PRICE</div>
+          <div style={{fontSize:28, fontWeight:500, letterSpacing:'-0.02em'}}>${avgPrice}<span style={{fontSize:14, fontWeight:400, color:'var(--color-earth)'}}>/t</span></div>
+          <div style={{fontSize:11, color:'var(--color-earth)'}}>~£{avgPriceGBP}/t · CUR8 target ~£150/t</div>
+        </div>
+      </div>
+
+      {/* 5 principles checklist */}
+      <div style={{display:'grid', gridTemplateColumns:'repeat(5,1fr)', gap:8, marginBottom:24}}>
+        {principles.map(pr => (
+          <div key={pr.n} style={{
+            padding:'14px 16px', borderRadius:6,
+            border:`1px solid ${pr.pass ? '#c8e6c9' : 'var(--color-border)'}`,
+            background: pr.pass ? '#f1f8f1' : 'var(--color-air)',
+          }}>
+            <div style={{display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:6}}>
+              <span style={{fontFamily:'var(--font-mono)', fontSize:9, color:'var(--color-earth)', letterSpacing:'.1em'}}>{pr.n}</span>
+              <span style={{fontSize:12}}>{pr.pass ? '✓' : '○'}</span>
+            </div>
+            <div style={{fontSize:12, fontWeight:600, marginBottom:4, lineHeight:1.3}}>{pr.title}</div>
+            <div style={{fontSize:10, color:'var(--color-earth)', lineHeight:1.5}}>{pr.detail}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* 5-pillar aggregate bars */}
+      <div style={{borderTop:'1px solid var(--color-border)', paddingTop:20}}>
+        <div style={{fontFamily:'var(--font-mono)', fontSize:9, letterSpacing:'.12em', color:'var(--color-umber)', textTransform:'uppercase', marginBottom:14}}>
+          Portfolio avg · 5-pillar due diligence score
+        </div>
+        <div style={{display:'flex', flexDirection:'column', gap:10}}>
+          {pillars.map(pl => {
+            const val = avgPillar(pl.key);
+            return (
+              <div key={pl.key} style={{display:'grid', gridTemplateColumns:'120px 1fr 36px', gap:10, alignItems:'center'}}>
+                <div style={{fontSize:12, fontWeight:500}}>{pl.label}</div>
+                <div style={{background:'var(--color-border)', borderRadius:3, height:8, overflow:'hidden'}}>
+                  <div style={{width:`${val/20*100}%`, height:'100%', background:pl.color, borderRadius:3, transition:'width .4s ease'}}/>
+                </div>
+                <div style={{fontFamily:'var(--font-mono)', fontSize:11, textAlign:'right', color:'var(--color-earth)'}}>{val}/20</div>
+              </div>
+            );
+          })}
+        </div>
+        <div style={{marginTop:14, fontSize:11, color:'var(--color-earth)', lineHeight:1.6}}>
+          <strong style={{color:'var(--color-dark-carbon)'}}>Due diligence note:</strong> Projects scoring below 40/100 are excluded. High-reversal methods (peatland, coastal, REDD+) are hard-excluded. All selected projects meet CUR8's minimum 40-year durability threshold.
+        </div>
+      </div>
+    </Card>
   );
 }
 
@@ -6900,6 +7145,47 @@ function CorsiaTag() {
   );
 }
 
+function MultiYearTag() {
+  return (
+    <span title="CUR8 recommends multi-year offtake — lock in pricing & supply security" style={{
+      display:'inline-flex', alignItems:'center', gap:3,
+      fontSize:9, fontFamily:'var(--font-mono)', letterSpacing:'.08em', textTransform:'uppercase',
+      background:'#1a3a1a', color:'#7ed47e', padding:'2px 6px', borderRadius:3, flexShrink:0,
+    }}>⟳ Multi-yr</span>
+  );
+}
+
+// CUR8 5-pillar mini bar — compact horizontal bars shown inline in project rows
+function PillarBars({ pillars }) {
+  if (!pillars) return null;
+  const bars = [
+    { key:'impact',          label:'Impact',     color:'#4a9d6f' },
+    { key:'integrity',       label:'Integrity',  color:'#3a7abf' },
+    { key:'deliveryRisk',    label:'Delivery',   color:'#c87e3a' },
+    { key:'futurePotential', label:'Future',     color:'#8b6fc4' },
+    { key:'beyondCarbon',    label:'Beyond C',   color:'#5a9e8e' },
+  ];
+  return (
+    <div title="CUR8 due diligence: Impact · Integrity · Delivery · Future Potential · Beyond Carbon"
+      style={{display:'flex', gap:3, alignItems:'center', marginTop:5}}>
+      {bars.map(b => {
+        const pct = Math.round((pillars[b.key] || 0) / 20 * 100);
+        return (
+          <div key={b.key} style={{display:'flex', flexDirection:'column', alignItems:'center', gap:1}}>
+            <div style={{width:22, height:3, borderRadius:2, background:'var(--color-border)', overflow:'hidden'}}>
+              <div style={{width:`${pct}%`, height:'100%', background:b.color, borderRadius:2}}/>
+            </div>
+            <span style={{fontSize:7, color:'var(--color-earth)', fontFamily:'var(--font-mono)', letterSpacing:'.04em', textTransform:'uppercase', whiteSpace:'nowrap'}}>{b.label[0]}</span>
+          </div>
+        );
+      })}
+      <span style={{fontSize:9, fontFamily:'var(--font-mono)', color:'var(--color-earth)', marginLeft:2}}>
+        {pillars.total}/100
+      </span>
+    </div>
+  );
+}
+
 function ProjectRow({ p, cols, showNote, onClick }) {
   const [hover, setHover] = React.useState(false);
   const corsiaEligible = CORSIA_REGISTRIES.has(p.reg) && CORSIA_METHODS.has(p.m);
@@ -6914,7 +7200,9 @@ function ProjectRow({ p, cols, showNote, onClick }) {
         <div style={{fontWeight:500, display:'flex', alignItems:'center', gap:8, flexWrap:'wrap'}}>
           {p.n}
           {corsiaEligible && <CorsiaTag/>}
+          {p._multiYearRec && <MultiYearTag/>}
         </div>
+        {p._pillars && <PillarBars pillars={p._pillars}/>}
         {showNote && p.note && <div style={{fontSize:11, color:'var(--color-earth)', lineHeight:1.5, marginTop:3}}>{p.note}</div>}
       </div>
       <div style={{color:'var(--color-earth)', fontSize:12}}>{p.s || '—'}</div>
