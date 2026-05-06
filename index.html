@@ -7610,8 +7610,11 @@ const MILESTONES = [
 function BusinessCaseView({ prefs, strat }) {
   const [section, setSection] = React.useState('summary');
   const years = prefs.targetYear - 2026;
-  const annualBudget = (prefs.totalBudget || 230_000_000) / years;
-  const totalBudget = prefs.totalBudget || 230_000_000;
+  // Single source of truth: use the strategy engine's computed 10-year cost
+  const totalBudget   = strat.tenYrCost;
+  const annualBudget  = strat.tenYrCost / 10;
+  const peakAnnualSpend = Math.max(...strat.tenYr.map(r => r.cost));
+  const peakYear        = strat.tenYr.reduce((best, r) => r.cost > best.cost ? r : best, strat.tenYr[0]).year;
 
   const sections = [
     { k: 'summary',     l: '01 · Executive Summary' },
@@ -7651,9 +7654,9 @@ function BusinessCaseView({ prefs, strat }) {
         </div>
         <div style={{display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap: 1, background:'rgba(255,255,255,0.1)', borderRadius: 6, overflow:'hidden'}}>
           {[
-            { label:'Total programme', value: fmt.money(totalBudget), sub: `${years}-year commitment` },
+            { label:'Total programme', value: fmt.money(totalBudget), sub: '10-year commitment' },
             { label:'Annual budget', value: fmt.money(annualBudget), sub: 'avg. per year' },
-            { label:'Peak annual spend', value: fmt.money(annualBudget * 1.4), sub: `est. ${Math.round(2026 + years * 0.6)}` },
+            { label:'Peak annual spend', value: fmt.money(peakAnnualSpend), sub: `est. ${peakYear}` },
             { label:'Net-zero year', value: String(prefs.targetYear), sub: 'SBTi aligned' },
           ].map((m, i) => (
             <div key={i} style={{padding:'20px 24px', background:'rgba(255,255,255,0.04)'}}>
@@ -7682,7 +7685,7 @@ function BusinessCaseView({ prefs, strat }) {
       {section === 'summary' && <BCSummary prefs={prefs} strat={strat} totalBudget={totalBudget} annualBudget={annualBudget} years={years}/>}
       {section === 'value'   && <BCValue prefs={prefs}/>}
       {section === 'timing'  && <BCTiming prefs={prefs}/>}
-      {section === 'peers'   && <BCPeers prefs={prefs}/>}
+      {section === 'peers'   && <BCPeers prefs={prefs} strat={strat}/>}
       {section === 'ask'     && <BCAsk prefs={prefs} strat={strat} totalBudget={totalBudget} annualBudget={annualBudget} years={years}/>}
     </div>
   );
@@ -8076,7 +8079,7 @@ function BCTiming({ prefs }) {
 }
 
 /* ---- 04 Peer Benchmark ------------------------------------ */
-function BCPeers({ prefs }) {
+function BCPeers({ prefs, strat }) {
   const { PEER_PROFILES_DB } = window.CUR8_DATA;
   const peerNames = prefs.peers || [];
   const [selected, setSelected] = React.useState(0);
@@ -8107,7 +8110,7 @@ function BCPeers({ prefs }) {
   const peer = displayPeer;
 
   const orgShort = (prefs.orgName || '').split(' ')[0];
-  const annualBudget = (prefs.totalBudget || 0) / Math.max(1, prefs.targetYear - 2026);
+  const annualBudget = strat ? strat.tenYrCost / 10 : 0;
   const avgPeerSpend = displayPeers.length
     ? displayPeers.reduce((s, p) => s + parseFloat((p.spend || '$0').replace(/[^0-9.]/g,'')), 0) / displayPeers.length
     : 0;
@@ -8208,14 +8211,16 @@ function BCPeers({ prefs }) {
 
 /* ---- 05 The Ask ------------------------------------------- */
 function BCAsk({ prefs, strat, totalBudget, annualBudget, years }) {
-  const yearlyData = Array.from({length: years}, (_, i) => {
-    const yr = 2026 + i;
-    const ramp = Math.min(1, 0.4 + i * 0.12);
-    const spend = annualBudget * ramp;
-    const sp  = spend * (i < 4 ? 0.45 : 0.20);
-    const nbs = spend * (i < 4 ? 0.40 : 0.30);
-    const cdr = spend * (i < 4 ? 0.15 : 0.50);
-    return { yr, spend, sp, nbs, cdr };
+  // Use actual strategy engine data — same numbers as Strategy page
+  const yearlyData = strat.tenYr.map(r => {
+    const tT = r.totalT || 1;
+    return {
+      yr:    r.year,
+      spend: r.cost,
+      sp:    r.cost * (r.SP  / tT),
+      nbs:   r.cost * (r.NBS / tT),
+      cdr:   r.cost * (r.CDR / tT),
+    };
   });
 
   const maxSpend = Math.max(...yearlyData.map(d => d.spend));
@@ -8230,7 +8235,7 @@ function BCAsk({ prefs, strat, totalBudget, annualBudget, years }) {
         {/* Spend chart */}
         <BCCard title="Annual Budget by Year">
           <svg width="100%" viewBox={`0 0 ${W} ${H}`}>
-            {[0, 10e6, 20e6, 30e6].map(v => {
+            {[0, maxSpend*0.25, maxSpend*0.5, maxSpend*0.75].map(v => {
               const y = padT + innerH - (v / maxSpend) * innerH;
               return <g key={v}>
                 <line x1={padL} x2={W-padR} y1={y} y2={y} stroke="var(--color-border)" strokeWidth="1"/>
