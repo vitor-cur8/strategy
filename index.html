@@ -5999,12 +5999,12 @@ function StrategyView({ prefs, strat }) {
 
       {/* KPI row */}
       <div style={{display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap: 0, border:'1px solid var(--color-border)', borderRadius: 8, background:'#fff', marginBottom: 24, overflow:'hidden'}}>
-        <Kpi label="10-yr credits" val={fmt.k(strat.tenYrTotalT)} unit="tCO₂e"
-             sub={`${fmt.k(strat.tenYr[0].totalT)} tCO₂e/yr · ${Math.round((prefs.baselineEmissions || prefs.annualEmissions) * (prefs.sbtiAligned ? 10 : 20))/10}% of ${prefs.baselineYear || 2019} baseline`}/>
+        <Kpi label="Annual removal requirement" val={fmt.k(strat.tenYr[0].totalT)} unit="tCO₂e / yr"
+             sub={`${prefs.sbtiAligned ? '10' : '20'}% of ${prefs.baselineYear || 2019} baseline · hard-to-abate residual`}/>
+        <Kpi label="10-yr total credits" val={fmt.k(strat.tenYrTotalT)} unit="tCO₂e"
+             sub={`${fmt.k(strat.tenYr[0].totalT)} tCO₂e/yr × 10 years · 1:1 permanent removal`}/>
         <Kpi label="Avg annual cost" val={fmt.money(strat.tenYrCost / 10)} unit="USD / yr"
              sub={`avg $${Math.round(strat.tenYrCost/strat.tenYrTotalT)} / tCO₂e`}/>
-        <Kpi label="Residual at target" val={`${Math.round((strat.residualFrac||0.1)*100)}%`} unit="of footprint"
-             sub={`${fmt.k(strat.yearly[strat.yearly.length-1].totalT)} tCO₂e / yr in ${prefs.targetYear}`}/>
         <Kpi label="Projects matched" val={strat.validProjects.length} unit=""
              sub={`across ${prefs.regions.length} regions`}
              last/>
@@ -8585,15 +8585,19 @@ function BCPeers({ prefs, strat }) {
 
 /* ---- 05 The Ask ------------------------------------------- */
 function BCAsk({ prefs, strat, totalBudget, annualBudget, years }) {
-  // Use actual strategy engine data — same numbers as Strategy page
+  // Use actual strategy engine data — per-category cost = tonnes × actual price (not tonnage fraction)
   const yearlyData = strat.tenYr.map(r => {
-    const tT = r.totalT || 1;
+    const spCost  = r.SP  * strat.priceCat(r.year, 'SP');
+    const nbsCost = r.NBS * strat.priceCat(r.year, 'NBS');
+    const cdrCost = r.CDR * strat.priceCat(r.year, 'CDR');
     return {
       yr:    r.year,
-      spend: r.cost,
-      sp:    r.cost * (r.SP  / tT),
-      nbs:   r.cost * (r.NBS / tT),
-      cdr:   r.cost * (r.CDR / tT),
+      spend: r.cost,          // = spCost + nbsCost + cdrCost
+      sp:    spCost,
+      nbs:   nbsCost,
+      cdr:   cdrCost,
+      tonnes: r.totalT,
+      avgPrice: r.avgPrice,
     };
   });
 
@@ -8637,11 +8641,15 @@ function BCAsk({ prefs, strat, totalBudget, annualBudget, years }) {
 
         {/* Year table */}
         <BCCard title="Budget Breakdown">
+          <div style={{fontSize:11, color:'var(--color-earth)', marginBottom:12, lineHeight:1.5}}>
+            Credit volume is fixed at {fmt.k(yearlyData[0]?.tonnes || 0)} tCO₂e/yr (the hard-to-abate residual).
+            Annual spend rises as the portfolio shifts from SP ($100/t) → NBS → CDR (~$200–250/t).
+          </div>
           <div style={{overflowX:'auto'}}>
             <table style={{width:'100%', borderCollapse:'collapse', fontSize: 12}}>
               <thead>
                 <tr style={{borderBottom:'2px solid var(--color-dark-carbon)'}}>
-                  {['Year','SP','NBS','CDR','Total'].map(h => (
+                  {['Year','Credits (tCO₂e)','SP','NBS','CDR','Avg $/t','Total'].map(h => (
                     <th key={h} style={{padding:'6px 10px', textAlign:'right', fontFamily:'var(--font-mono)', fontSize:9, letterSpacing:'.08em', textTransform:'uppercase', color:'var(--color-umber)', fontWeight:500}}>
                       {h === 'Year' ? <span style={{textAlign:'left', display:'block'}}>{h}</span> : h}
                     </th>
@@ -8652,15 +8660,22 @@ function BCAsk({ prefs, strat, totalBudget, annualBudget, years }) {
                 {yearlyData.map((d, i) => (
                   <tr key={i} style={{borderBottom:'1px solid var(--color-border)', background: i % 2 === 0 ? '#fff' : 'var(--color-air)'}}>
                     <td style={{padding:'6px 10px', fontFamily:'var(--font-mono)', fontSize:11, fontWeight:500}}>{d.yr}</td>
-                    <td style={{padding:'6px 10px', textAlign:'right', fontFamily:'var(--font-mono)', fontSize:11}}>{fmt.money(d.sp)}</td>
-                    <td style={{padding:'6px 10px', textAlign:'right', fontFamily:'var(--font-mono)', fontSize:11}}>{fmt.money(d.nbs)}</td>
-                    <td style={{padding:'6px 10px', textAlign:'right', fontFamily:'var(--font-mono)', fontSize:11}}>{fmt.money(d.cdr)}</td>
+                    <td style={{padding:'6px 10px', textAlign:'right', fontFamily:'var(--font-mono)', fontSize:11, color:'var(--color-earth)'}}>{fmt.k(d.tonnes)}</td>
+                    <td style={{padding:'6px 10px', textAlign:'right', fontFamily:'var(--font-mono)', fontSize:11}}>{d.sp > 0 ? fmt.money(d.sp) : <span style={{color:'var(--color-air-tint)'}}>—</span>}</td>
+                    <td style={{padding:'6px 10px', textAlign:'right', fontFamily:'var(--font-mono)', fontSize:11}}>{d.nbs > 0 ? fmt.money(d.nbs) : <span style={{color:'var(--color-air-tint)'}}>—</span>}</td>
+                    <td style={{padding:'6px 10px', textAlign:'right', fontFamily:'var(--font-mono)', fontSize:11}}>{d.cdr > 0 ? fmt.money(d.cdr) : <span style={{color:'var(--color-air-tint)'}}>—</span>}</td>
+                    <td style={{padding:'6px 10px', textAlign:'right', fontFamily:'var(--font-mono)', fontSize:11, color:'var(--color-umber)'}}>
+                      ${Math.round(d.avgPrice)}
+                    </td>
                     <td style={{padding:'6px 10px', textAlign:'right', fontFamily:'var(--font-mono)', fontSize:11, fontWeight:600}}>{fmt.money(d.spend)}</td>
                   </tr>
                 ))}
                 <tr style={{borderTop:'2px solid var(--color-dark-carbon)', background:'var(--color-air)'}}>
                   <td style={{padding:'8px 10px', fontFamily:'var(--font-mono)', fontSize:11, fontWeight:700}}>Total</td>
-                  <td colSpan={3}/>
+                  <td style={{padding:'8px 10px', textAlign:'right', fontFamily:'var(--font-mono)', fontSize:11, color:'var(--color-earth)', fontWeight:500}}>
+                    {fmt.k(yearlyData.reduce((s,d)=>s+d.tonnes,0))}
+                  </td>
+                  <td colSpan={4}/>
                   <td style={{padding:'8px 10px', textAlign:'right', fontFamily:'var(--font-mono)', fontSize:13, fontWeight:700}}>{fmt.money(totalBudget)}</td>
                 </tr>
               </tbody>
