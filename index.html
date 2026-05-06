@@ -795,12 +795,15 @@ function computeCUR8Pillars(p) {
 // Inputs: a REAL_PROJECTS row (p), current prefs, the strategy method key,
 //         and optional usedRegions map for geographic diversification.
 function projectFitScore(p, prefs, methodKey, usedRegions) {
-  // Hard-exclude high-reversal / weak-MRV methods (CUR8 risk mitigation)
+  // Hard-exclude high-reversal / weak-MRV methods (CUR8 risk mitigation — all categories)
   if (HIGH_RISK_METHODS.has(p.m)) return -999;
 
-  // Base: CUR8 5-pillar composite (0–100)
-  const pillars = computeCUR8Pillars(p);
-  let score = pillars.total;
+  // CUR8 5-pillar due diligence applies to CDR only.
+  // NBS and SP use the standard rank-based base score.
+  const isCDR = METHODS[methodKey]?.cat === 'CDR';
+  let score = isCDR
+    ? computeCUR8Pillars(p).total   // 0–100 pillar composite
+    : (p.rank || 0) * 10;           // 0–60 diligence rank (NBS / SP)
 
   // 1. Industry profile preferred-methods boost (strategy-key level)
   const profile = INDUSTRY_PROFILES[prefs.industry] || INDUSTRY_PROFILES['default'];
@@ -914,15 +917,38 @@ function computeStrategy(prefs) {
     return { SP: sp, NBS: nbs, CDR: cdr };
   };
 
-  // Prices: SP flat at $100/t, NBS $55→$95/t as quality premiums grow,
-  // CDR rises $155→$250/t as scale and technology mature.
-  const priceCat = (y, cat) => {
+  // Reference prices define the relative cost structure across categories and time.
+  // SP is cheapest (fast climate impact), NBS mid-range, CDR most expensive (highest permanence).
+  // These ratios are preserved regardless of what the user sets as their avg price target.
+  const priceCatRef = (y, cat) => {
     const t = Math.max(0, Math.min(1, (y - startYr) / 9));
     if (cat === 'SP')  return 100;           // flat $100/t
     if (cat === 'NBS') return 55 + t * 40;  // $55 → $95/t
     if (cat === 'CDR') return 155 + t * 95; // $155 → $250/t
     return 0;
   };
+
+  // Compute the reference 10-year blended average (what priceCatRef produces naturally).
+  // Then derive a scale factor so the blended average equals prefs.pricePerTonne.
+  // This means changing the price slider scales all costs proportionally while
+  // preserving the SP/NBS/CDR relative price structure and the cost curve shape.
+  const refYearly = YEARS.slice(0, 10).map(y => {
+    const frac = ramp(y);
+    const totalT = annual * frac;
+    const m = mix(y);
+    const cost = totalT * m.SP  * priceCatRef(y, 'SP')
+               + totalT * m.NBS * priceCatRef(y, 'NBS')
+               + totalT * m.CDR * priceCatRef(y, 'CDR');
+    return { totalT, cost };
+  });
+  const refTotalT   = refYearly.reduce((s, r) => s + r.totalT, 0);
+  const refTotalCost = refYearly.reduce((s, r) => s + r.cost, 0);
+  const refBlended  = refTotalT > 0 ? refTotalCost / refTotalT : 150;
+  const userPrice   = prefs.pricePerTonne || 150;
+  const priceScale  = userPrice / refBlended;   // e.g. 1.33 if user wants $200 vs $150 ref
+
+  // Scaled priceCat: same shape, anchored to user's target blended average
+  const priceCat = (y, cat) => priceCatRef(y, cat) * priceScale;
 
   // Build per-year breakdown
   const yearly = YEARS.map(y => {
@@ -988,19 +1014,27 @@ function computeStrategy(prefs) {
     const dbMethods = METHOD_KEY_TO_DB[key] || [];
     if (!dbMethods.length) return;
 
+    const isCDR = METHODS[key]?.cat === 'CDR';
+
     // Only consider DB method strings not already represented in the portfolio
     const availableMethods = dbMethods.filter(m => !usedDbMethods.has(m));
     if (!availableMethods.length) return;
 
-    // CUR8 due diligence: pre-filter on minimum durability + exclude high-risk methods
+    // Eligibility filter:
+    // CDR — CUR8 full criteria: exclude weak-MRV methods + enforce min 40yr durability
+    // NBS/SP — only exclude explicitly high-risk methods; durability floor not applied
     const eligible = (pool) => pool.filter(p => {
       if (HIGH_RISK_METHODS.has(p.m)) return false;
-      const durNum = p.dur === '1000+' ? 1000 : parseInt(p.dur) || 0;
-      return durNum >= MIN_DURABILITY_YRS;
+      if (isCDR) {
+        const durNum = p.dur === '1000+' ? 1000 : parseInt(p.dur) || 0;
+        if (durNum < MIN_DURABILITY_YRS) return false;
+      }
+      return true;
     });
 
+    // Vintage diversity penalty only for CDR (NBS vintages are less critical)
     const scoreFn = (p) => projectFitScore(p, prefs, key, usedRegions)
-      - (usedVintages.get(vintageBucket(p.vintage || p.vy)) || 0) * 10; // vintage diversity
+      - (isCDR ? (usedVintages.get(vintageBucket(p.vintage || p.vy)) || 0) * 10 : 0);
 
     // Region-matching candidates first, sorted by company-aware composite score
     const regional = eligible(REAL_PROJECTS.filter(p =>
@@ -1017,13 +1051,13 @@ function computeStrategy(prefs) {
       usedProjectNames.add(pick.n);
       usedDbMethods.add(pick.m);
       usedRegions.set(pick.r, (usedRegions.get(pick.r) || 0) + 1);
-      const vb = vintageBucket(pick.vintage || pick.vy);
-      usedVintages.set(vb, (usedVintages.get(vb) || 0) + 1);
-      // Attach CUR8 5-pillar scores for display
-      const _pillars = computeCUR8Pillars(pick);
-      // Flag as multi-year offtake candidate: CDR projects or early vintages benefit most from lock-in
-      const durNum = pick.dur === '1000+' ? 1000 : parseInt(pick.dur) || 0;
-      const _multiYearRec = durNum >= 100 || ['DAC','BECCS','Biochar','Enhanced Weathering','OAE'].includes(pick.m);
+      if (isCDR) {
+        const vb = vintageBucket(pick.vintage || pick.vy);
+        usedVintages.set(vb, (usedVintages.get(vb) || 0) + 1);
+      }
+      // CUR8 5-pillar scores + multi-year recommendation: CDR only
+      const _pillars      = isCDR ? computeCUR8Pillars(pick) : null;
+      const _multiYearRec = isCDR && ['DAC','BECCS','Biochar','Enhanced Weathering','OAE','Marine Biomass','OAE','Ex-Situ Mineralisation'].includes(pick.m);
       selectedProjects.push({ ...pick, strategyMethod: key, _pillars, _multiYearRec });
     }
   });
@@ -4250,16 +4284,13 @@ function StepBudget({ prefs, setPrefs }) {
               </div>
               <input type="range" min={50} max={400} step={10}
                 value={prefs.pricePerTonne}
-                onChange={e => {
-                  const p = +e.target.value;
-                  setPrefs({...prefs, pricePerTonne: p, totalBudget: Math.round(s.tenYrTotalT * p)});
-                }}
+                onChange={e => setPrefs({...prefs, pricePerTonne: +e.target.value})}
                 style={slider}/>
               <div style={{display:'flex', justifyContent:'space-between', fontFamily:'var(--font-mono)', fontSize: 10, letterSpacing:'.06em', color:'var(--color-umber)', marginTop: 6}}>
                 <span>$50</span><span>$400</span>
               </div>
               <div style={{fontSize: 11, color:'var(--color-earth)', marginTop: 10, fontFamily:'var(--font-mono)', letterSpacing:'.03em'}}>
-                10-yr investment at this price: <strong>{fmt.money(Math.round(s.tenYrTotalT * prefs.pricePerTonne))}</strong>
+                10-yr programme cost: <strong>{fmt.money(s.tenYrCost)}</strong> · avg <strong>{fmt.money(s.tenYrCost / 10)}</strong> / yr
               </div>
             </div>
           ) : (
@@ -6122,10 +6153,10 @@ function CUR8PrinciplesPanel({ strat, prefs }) {
     <Card padding={28} style={{marginBottom: 20}}>
       <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:24}}>
         <div>
-          <Eyebrow style={{marginBottom:8}}>CUR8 portfolio design criteria</Eyebrow>
-          <div style={{fontSize:18, fontWeight:500}}>How this portfolio was built</div>
+          <Eyebrow style={{marginBottom:8}}>CUR8 CDR due diligence criteria</Eyebrow>
+          <div style={{fontSize:18, fontWeight:500}}>How CDR projects are selected</div>
           <div style={{fontSize:13, color:'var(--color-earth)', marginTop:4}}>
-            Only the top 3–5% of assessed projects · 100+ data-point due diligence · aligned with Oxford Principles, ICVCM &amp; SBTi
+            Applied to durable CDR only · top 3–5% of assessed projects · 100+ data-point due diligence · Oxford Principles, ICVCM &amp; SBTi aligned
           </div>
         </div>
         <div style={{textAlign:'right', flexShrink:0}}>
@@ -6173,7 +6204,7 @@ function CUR8PrinciplesPanel({ strat, prefs }) {
           })}
         </div>
         <div style={{marginTop:14, fontSize:11, color:'var(--color-earth)', lineHeight:1.6}}>
-          <strong style={{color:'var(--color-dark-carbon)'}}>Due diligence note:</strong> Projects scoring below 40/100 are excluded. High-reversal methods (peatland, coastal, REDD+) are hard-excluded. All selected projects meet CUR8's minimum 40-year durability threshold.
+          <strong style={{color:'var(--color-dark-carbon)'}}>CDR due diligence note:</strong> All CDR projects scored on 5 pillars; those below 40/100 are excluded. Minimum 40-year durability enforced. High-reversal methods (peatland, coastal, REDD+) hard-excluded across all categories. NBS and SP projects use standard registry + rank scoring.
         </div>
       </div>
     </Card>
