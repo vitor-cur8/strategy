@@ -6109,11 +6109,11 @@ function CUR8PrinciplesPanel({ strat, prefs }) {
   const avgPriceGBP = Math.round(avgPrice * GBP_RATE);
 
   const pillars = [
-    { key:'impact',          label:'Impact',           desc:'Physical climate benefit, durability & additionality',          color:'#4a9d6f' },
-    { key:'integrity',       label:'Integrity',        desc:'MRV rigour & carbon accounting quality',                        color:'#3a7abf' },
-    { key:'deliveryRisk',    label:'Delivery Risk',    desc:'Likelihood of on-time, full credit delivery',                   color:'#c87e3a' },
-    { key:'futurePotential', label:'Future Potential', desc:'Gigatonne-scale pathway & market catalysis',                    color:'#8b6fc4' },
-    { key:'beyondCarbon',    label:'Beyond Carbon',    desc:'Biodiversity, community & social co-benefits',                  color:'#5a9e8e' },
+    { key:'impact',          label:'Impact',           desc:'Physical climate benefit, durability & additionality',          color:'var(--color-earth)' },
+    { key:'integrity',       label:'Integrity',        desc:'MRV rigour & carbon accounting quality',                        color:'var(--color-water)' },
+    { key:'deliveryRisk',    label:'Delivery Risk',    desc:'Likelihood of on-time, full credit delivery',                   color:'var(--color-umber)' },
+    { key:'futurePotential', label:'Future Potential', desc:'Gigatonne-scale pathway & market catalysis',                    color:'var(--color-ether)' },
+    { key:'beyondCarbon',    label:'Beyond Carbon',    desc:'Biodiversity, community & social co-benefits',                  color:'var(--color-water-tint)' },
   ];
 
   const principles = [
@@ -7190,11 +7190,11 @@ function MultiYearTag() {
 function PillarBars({ pillars }) {
   if (!pillars) return null;
   const bars = [
-    { key:'impact',          label:'Impact',     color:'#4a9d6f' },
-    { key:'integrity',       label:'Integrity',  color:'#3a7abf' },
-    { key:'deliveryRisk',    label:'Delivery',   color:'#c87e3a' },
-    { key:'futurePotential', label:'Future',     color:'#8b6fc4' },
-    { key:'beyondCarbon',    label:'Beyond C',   color:'#5a9e8e' },
+    { key:'impact',          label:'Impact',     color:'var(--color-earth)' },
+    { key:'integrity',       label:'Integrity',  color:'var(--color-water)' },
+    { key:'deliveryRisk',    label:'Delivery',   color:'var(--color-umber)' },
+    { key:'futurePotential', label:'Future',     color:'var(--color-ether)' },
+    { key:'beyondCarbon',    label:'Beyond C',   color:'var(--color-water-tint)' },
   ];
   return (
     <div title="CUR8 due diligence: Impact · Integrity · Delivery · Future Potential · Beyond Carbon"
