@@ -903,30 +903,57 @@ function computeStrategy(prefs) {
   // Expressed as a fraction of CURRENT emissions only for the yearly breakdown display.
   const ramp = (y) => annualResidual / (annual || annualResidual);
 
-  // Three-phase mix — Oxford Principles aligned (CUR8 criteria):
-  //   Phase 1 (2026-2031): SP dominates; CDR innovation floor of 8% ensures early market catalysis
-  //   Phase 2 (2031-2035): NBS removals bridge; CDR ramps to ~100%
-  //   Phase 3 (2035+):     100% Durable CDR — permanent removals only
-  // CDR_MIN = 8%: represents the ~20% "innovation allocation" applied to the non-SP budget
-  // (i.e. once SP < 100%, 8% of the total goes to CDR, aligning with £150/t blended target)
-  const CDR_MIN = 0.08;
-  const mix = (y) => {
-    const t = Math.max(0, Math.min(1, (y - startYr) / 9));
-    if (!prefs.includeSuperpollutants) {
-      // No SP: NBS bridge → CDR, with CDR innovation floor from year 1
-      const nbsRaw = Math.max(0, 1 - t * 2);
-      const cdrFrac = Math.max(CDR_MIN, 1 - nbsRaw);
-      const nbsFrac = 1 - cdrFrac;
-      return { SP: 0, NBS: nbsFrac, CDR: cdrFrac };
+  // ── SBTi Corporate Net-Zero Standard V2.0 — CDR milestone ramp ──────────
+  // CDR purchase requirements as % of annual residual emissions:
+  //   2030: ≥5%   2035: ≥16%   2040: ≥35%   2050: 100% (full neutralisation)
+  // Source: SBTi Corporate Net-Zero Standard Draft V2.0 interim CDR steps.
+  // Non-SBTi companies use a simplified NBS→CDR curve without milestone anchors.
+  const SBTI_CDR_MILESTONES = [
+    { year: 2026, pct: 0.00 },
+    { year: 2030, pct: 0.05 },
+    { year: 2035, pct: 0.16 },
+    { year: 2040, pct: 0.35 },
+    { year: 2050, pct: 1.00 },
+  ];
+
+  // Linear interpolation between milestone years
+  const sbtiCDRPct = (y) => {
+    if (y <= 2026) return 0;
+    if (y >= 2050) return 1;
+    for (let i = 0; i < SBTI_CDR_MILESTONES.length - 1; i++) {
+      const a = SBTI_CDR_MILESTONES[i], b = SBTI_CDR_MILESTONES[i + 1];
+      if (y >= a.year && y <= b.year) {
+        const t = (y - a.year) / (b.year - a.year);
+        return a.pct + t * (b.pct - a.pct);
+      }
     }
-    // Full three-phase curve
-    const sp = Math.max(0, 1 - t * 2);           // 100%→0% by midpoint (2031)
-    // CDR innovation floor kicks in as soon as SP starts declining
-    const cdrMin = sp < 1 ? CDR_MIN : 0;
-    const cdrRaw = Math.max(0, t * 2 - 1);
-    const cdr = Math.max(cdrMin, cdrRaw);         // never below 8% once SP < 100%
-    const nbs = Math.max(0, 1 - sp - cdr);        // peaks around 2031
-    return { SP: sp, NBS: nbs, CDR: cdr };
+    return 0;
+  };
+
+  // Portfolio mix per year:
+  // CDR fraction follows SBTi milestones (or a simplified curve for non-SBTi).
+  // SP (superpollutants) phase out by 2031 for rapid near-term warming benefit.
+  // NBS fills the gap between SP phase-out and CDR scale-up.
+  const mix = (y) => {
+    if (prefs.sbtiAligned) {
+      // SBTi: CDR anchored to milestone steps
+      const cdr = sbtiCDRPct(y);
+      // SP: phases out 2026 → 2031 (5-yr ramp), only if enabled
+      const spRaw = prefs.includeSuperpollutants
+        ? Math.max(0, 1 - (y - startYr) / 5)
+        : 0;
+      // SP cannot exceed the non-CDR budget
+      const sp  = Math.min(spRaw, 1 - cdr);
+      const nbs = Math.max(0, 1 - cdr - sp);
+      return { SP: sp, NBS: nbs, CDR: cdr };
+    } else {
+      // Non-SBTi: simplified NBS bridge → CDR, no milestone anchors
+      const t = Math.max(0, Math.min(1, (y - startYr) / 9));
+      const sp  = prefs.includeSuperpollutants ? Math.max(0, 1 - t * 2) : 0;
+      const cdr = Math.max(0.05, t * 2 - 1);
+      const nbs = Math.max(0, 1 - sp - cdr);
+      return { SP: sp, NBS: nbs, CDR: cdr };
+    }
   };
 
   // Reference prices define the relative cost structure across categories and time.
@@ -1155,6 +1182,8 @@ function computeStrategy(prefs) {
     spTotal, nbsTotal, cdrTotal,
     validProjects, roadmap,
     mix, priceCat, ramp, residualFrac,
+    annualResidual, baselineEmissions,
+    sbtiCDRPct: prefs.sbtiAligned ? sbtiCDRPct : null,
   };
 }
 
@@ -6064,33 +6093,62 @@ function StrategyView({ prefs, strat }) {
         </Card>
       </div>
 
-      {/* Phases narrative */}
+      {/* SBTi CDR Milestones + Phases narrative */}
+      {prefs.sbtiAligned && (
+        <Card padding={20} style={{marginBottom: 16, background:'var(--color-air)'}}>
+          <div style={{display:'flex', alignItems:'center', gap:16, flexWrap:'wrap'}}>
+            <div style={{fontFamily:'var(--font-mono)', fontSize:9, letterSpacing:'.12em', textTransform:'uppercase', color:'var(--color-umber)', flexShrink:0}}>
+              SBTi NZ 2.0 · CDR Milestones
+            </div>
+            {[
+              { year:2030, pct:'5%',   label:'Interim step 1' },
+              { year:2035, pct:'16%',  label:'Interim step 2' },
+              { year:2040, pct:'35%',  label:'Interim step 3' },
+              { year:2050, pct:'100%', label:'Full neutralisation' },
+            ].map((m, i) => (
+              <div key={i} style={{display:'flex', alignItems:'center', gap:8}}>
+                {i > 0 && <div style={{width:20, height:1, background:'var(--color-border)'}}/>}
+                <div style={{textAlign:'center'}}>
+                  <div style={{fontFamily:'var(--font-mono)', fontSize:13, fontWeight:600, color:'var(--color-dark-carbon)'}}>{m.pct}</div>
+                  <div style={{fontFamily:'var(--font-mono)', fontSize:9, color:'var(--color-umber)'}}>{m.year}</div>
+                  <div style={{fontSize:9, color:'var(--color-earth)', marginTop:1}}>{m.label}</div>
+                </div>
+              </div>
+            ))}
+            <div style={{marginLeft:'auto', fontSize:11, color:'var(--color-earth)', maxWidth:320}}>
+              CDR % of annual residual. Remaining credits covered by NBS bridge until CDR fully scales.
+            </div>
+          </div>
+        </Card>
+      )}
       <div style={{display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap: 16, marginBottom: 20}}>
         <PhaseCard
           phase="01"
           years="2026–2031"
           title="Superpollutant leadership"
           accent="var(--cat-sp)"
-          desc="Methane, ODS and HFC credits deliver rapid avoided warming at $100/t while durable CDR scales. Phase 1 is your compliance floor under SBTi NZ 2.0."
+          desc={`Methane, ODS and HFC credits deliver rapid avoided warming at $100/t. ${prefs.sbtiAligned ? 'BVCM Recognition: covers ≥1% of ongoing emissions via verified removals while CDR milestones ramp up.' : 'Phase out by 2031 as NBS and CDR scale.'}`}
           stat={`${fmt.k(strat.spTotal)} tCO₂e`}
           statLabel="10-yr SP volume"
           active={prefs.includeSuperpollutants}
         />
         <PhaseCard
           phase="02"
-          years="2031–2035"
+          years="2026–2040"
           title="Nature-based bridge"
           accent="var(--cat-nbs)"
-          desc="Reforestation (ARR), wetland/mangrove restoration, and soil carbon sequestration actively remove CO₂. Removal credits only — no forest protection or avoidance. $45–95/t with strong biodiversity co-benefits."
+          desc={`Reforestation (ARR), wetland/mangrove restoration, and soil carbon sequestration bridge the gap while CDR scales to its ${prefs.sbtiAligned ? '35% milestone by 2040' : 'dominant phase from 2035'}. Removal credits only — no avoidance.`}
           stat={`${fmt.k(strat.nbsTotal)} tCO₂e`}
           statLabel="10-yr NBS volume"
         />
         <PhaseCard
           phase="03"
-          years="2035–2050"
+          years={prefs.sbtiAligned ? '2026–2050 (scaling)' : '2035–2050'}
           title="Durable CDR"
           accent="var(--cat-cdr)"
-          desc="Biochar, ERW and DAC dominate from 2035 as supply matures. Permanent removal at $155–250/t forms the long-term core of your portfolio."
+          desc={prefs.sbtiAligned
+            ? 'CDR scales per SBTi milestones: 5% by 2030 → 16% by 2035 → 35% by 2040 → 100% by 2050. Biochar, ERW and DAC. Permanent, 1:1 neutralisation of the hard-to-abate residual.'
+            : 'Biochar, ERW and DAC dominate from 2035 as supply matures. Permanent removal at $155–250/t forms the long-term core.'}
           stat={`${fmt.k(strat.cdrTotal)} tCO₂e`}
           statLabel="10-yr CDR volume"
         />
