@@ -4026,16 +4026,17 @@ function StepAccount({ prefs, setPrefs }) {
           <div style={{display:'grid', gridTemplateColumns:'1fr auto', gap:12, alignItems:'end'}}>
             <Field label="Baseline year emissions (tCO₂e) — used to calculate your permanent residual">
               <Input
-                value={(prefs.baselineEmissions ?? prefs.annualEmissions).toLocaleString('en-GB')}
+                value={prefs.baselineEmissions != null ? prefs.baselineEmissions.toLocaleString('en-GB') : ''}
+                placeholder={`e.g. ${prefs.annualEmissions.toLocaleString('en-GB')} — enter your baseline year inventory`}
                 onChange={v => {
-                  const n = parseInt(v.replace(/[^0-9]/g,''), 10) || 0;
-                  setPrefs({...prefs, baselineEmissions: n});
+                  const raw = v.replace(/[^0-9]/g,'');
+                  setPrefs({...prefs, baselineEmissions: raw === '' ? null : (parseInt(raw, 10) || null)});
                 }}
               />
-              <div style={{fontSize: 12, color: 'var(--color-umber)', marginTop: 6, fontFamily:'var(--font-mono)', letterSpacing:'.04em'}}>
-                {prefs.baselineEmissions && prefs.baselineEmissions !== prefs.annualEmissions
-                  ? `Residual = ${fmt.k(Math.round((prefs.baselineEmissions) * (prefs.sbtiAligned ? 0.10 : 0.20)))} tCO₂e/yr (${prefs.sbtiAligned ? '10' : '20'}% of ${prefs.baselineYear || 2019} baseline)`
-                  : 'Set to your SBTi baseline year inventory if you have already begun reducing emissions.'}
+              <div style={{fontSize: 12, color: prefs.baselineEmissions ? 'var(--color-umber)' : 'var(--color-air-tint)', marginTop: 6, fontFamily:'var(--font-mono)', letterSpacing:'.04em'}}>
+                {prefs.baselineEmissions
+                  ? `Residual = ${fmt.k(Math.round(prefs.baselineEmissions * (prefs.sbtiAligned ? 0.10 : 0.20)))} tCO₂e/yr (${prefs.sbtiAligned ? '10' : '20'}% of ${prefs.baselineYear || 2019} baseline)`
+                  : `Not set — residual will use current annual emissions as a proxy. Enter your ${prefs.baselineYear || 2019} GHG inventory for an accurate calculation.`}
               </div>
             </Field>
             <div style={{marginBottom: 26}}>
@@ -7812,14 +7813,18 @@ function PrefsDrawer({ prefs, setPrefs, onClose }) {
             <div>
               <div style={{display:'flex', justifyContent:'space-between', marginBottom: 6}}>
                 <Eyebrow color="var(--color-umber)">Baseline year emissions ({prefs.baselineYear || 2019})</Eyebrow>
-                <span style={{fontFamily:'var(--font-mono)', fontSize: 12}}>{fmt.k(prefs.baselineEmissions || prefs.annualEmissions)} tCO₂e</span>
+                <span style={{fontFamily:'var(--font-mono)', fontSize: 12, color: prefs.baselineEmissions ? 'var(--color-dark-carbon)' : 'var(--color-air-tint)'}}>
+                  {prefs.baselineEmissions ? `${fmt.k(prefs.baselineEmissions)} tCO₂e` : 'not set'}
+                </span>
               </div>
               <input type="range" min={100000} max={10000000} step={50000}
                 value={prefs.baselineEmissions || prefs.annualEmissions}
                 onChange={e => setPrefs({...prefs, baselineEmissions: +e.target.value})}
                 style={{width:'100%', accentColor:'var(--color-dark-carbon)'}}/>
-              <div style={{fontSize:11, color:'var(--color-earth)', marginTop:6, fontFamily:'var(--font-mono)', letterSpacing:'.03em'}}>
-                Residual: <strong>{fmt.k(Math.round((prefs.baselineEmissions || prefs.annualEmissions) * (prefs.sbtiAligned ? 0.10 : 0.20)))}</strong> tCO₂e/yr · {prefs.sbtiAligned ? '10' : '20'}% of baseline
+              <div style={{fontSize:11, color: prefs.baselineEmissions ? 'var(--color-earth)' : 'var(--color-air-tint)', marginTop:6, fontFamily:'var(--font-mono)', letterSpacing:'.03em'}}>
+                {prefs.baselineEmissions
+                  ? <>Residual: <strong>{fmt.k(Math.round(prefs.baselineEmissions * (prefs.sbtiAligned ? 0.10 : 0.20)))}</strong> tCO₂e/yr · {prefs.sbtiAligned ? '10' : '20'}% of baseline</>
+                  : `Using current annual emissions as proxy — set your ${prefs.baselineYear || 2019} baseline above for accuracy`}
               </div>
             </div>
 
