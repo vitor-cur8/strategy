@@ -6340,12 +6340,23 @@ function CUR8PrinciplesPanel({ strat, prefs }) {
   const GBP_RATE  = 0.79; // approx USD → GBP
   const avgPriceGBP = Math.round(avgPrice * GBP_RATE);
 
+  // Pillar scores are computed on a 0–20 internal scale; normalise to 0–10 for display
+  // and colour using the CUR8 design-system score band tokens.
+  const scoreColor = (s10) => {
+    if (s10 == null || s10 === 0) return 'var(--score-na)';
+    if (s10 >= 9.5) return 'var(--score-5)';
+    if (s10 >= 7.0) return 'var(--score-4)';
+    if (s10 >= 5.0) return 'var(--score-3)';
+    if (s10 >= 3.0) return 'var(--score-2)';
+    return 'var(--score-1)';
+  };
+
   const pillars = [
-    { key:'impact',          label:'Impact',           desc:'Physical climate benefit, durability & additionality',          color:'var(--color-earth-tint)' },
-    { key:'integrity',       label:'Integrity',        desc:'MRV rigour & carbon accounting quality',                        color:'var(--color-water-accent)' },
-    { key:'deliveryRisk',    label:'Delivery Risk',    desc:'Likelihood of on-time, full credit delivery',                   color:'var(--color-umber-tint)' },
-    { key:'futurePotential', label:'Future Potential', desc:'Gigatonne-scale pathway & market catalysis',                    color:'var(--color-ether-accent)' },
-    { key:'beyondCarbon',    label:'Beyond Carbon',    desc:'Biodiversity, community & social co-benefits',                  color:'var(--color-fire-accent)' },
+    { key:'impact',          label:'Impact',           desc:'Physical climate benefit, durability & additionality' },
+    { key:'integrity',       label:'Integrity',        desc:'MRV rigour & carbon accounting quality' },
+    { key:'deliveryRisk',    label:'Delivery Risk',    desc:'Likelihood of on-time, full credit delivery' },
+    { key:'futurePotential', label:'Future Potential', desc:'Gigatonne-scale pathway & market catalysis' },
+    { key:'beyondCarbon',    label:'Beyond Carbon',    desc:'Biodiversity, community & social co-benefits' },
   ];
 
   const principles = [
@@ -6423,20 +6434,22 @@ function CUR8PrinciplesPanel({ strat, prefs }) {
         </div>
         <div style={{display:'flex', flexDirection:'column', gap:10}}>
           {pillars.map(pl => {
-            const val = avgPillar(pl.key);
+            const raw = avgPillar(pl.key);          // 0–20 internal scale
+            const s10 = parseFloat((raw / 2).toFixed(1)); // normalise to 0–10
+            const color = scoreColor(s10);
             return (
-              <div key={pl.key} style={{display:'grid', gridTemplateColumns:'120px 1fr 36px', gap:10, alignItems:'center'}}>
+              <div key={pl.key} style={{display:'grid', gridTemplateColumns:'120px 1fr 48px', gap:10, alignItems:'center'}}>
                 <div style={{fontSize:12, fontWeight:500}}>{pl.label}</div>
-                <div style={{background:'var(--color-border)', borderRadius:3, height:8, overflow:'hidden'}}>
-                  <div style={{width:`${val/20*100}%`, height:'100%', background:pl.color, borderRadius:3, transition:'width .4s ease'}}/>
+                <div style={{background:'var(--score-track, #E6E9EB)', borderRadius:3, height:8, overflow:'hidden'}}>
+                  <div style={{width:`${s10/10*100}%`, height:'100%', background:color, borderRadius:3, transition:'width .4s ease'}}/>
                 </div>
-                <div style={{fontFamily:'var(--font-mono)', fontSize:11, textAlign:'right', color:'var(--color-earth)'}}>{val}/20</div>
+                <div style={{fontFamily:'var(--font-mono)', fontSize:11, textAlign:'right', color:'var(--color-earth)'}}>{s10}/10</div>
               </div>
             );
           })}
         </div>
         <div style={{marginTop:14, fontSize:11, color:'var(--color-earth)', lineHeight:1.6}}>
-          <strong style={{color:'var(--color-dark-carbon)'}}>CDR due diligence note:</strong> All CDR projects scored on 5 pillars; those below 40/100 are excluded. Minimum 40-year durability enforced. High-reversal methods (peatland, coastal, REDD+) hard-excluded across all categories. NBS and SP projects use standard registry + rank scoring.
+          <strong style={{color:'var(--color-dark-carbon)'}}>CDR due diligence note:</strong> All CDR projects scored on 5 pillars (1–10 each); those below 4.0 avg are excluded. Minimum 40-year durability enforced. High-reversal methods (peatland, coastal, REDD+) hard-excluded across all categories. NBS and SP projects use standard registry + rank scoring.
         </div>
       </div>
     </Card>
