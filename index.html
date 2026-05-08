@@ -1118,8 +1118,8 @@ function computeStrategy(prefs) {
         const vb = vintageBucket(pick.vintage || pick.vy);
         usedVintages.set(vb, (usedVintages.get(vb) || 0) + 1);
       }
-      // CUR8 5-pillar scores + multi-year recommendation: CDR only
-      const _pillars      = isCDR ? computeCUR8Pillars(pick) : null;
+      // CUR8 5-pillar scores: CDR and NBS both scored; SP excluded
+      const _pillars      = pick.cat !== 'sp' ? computeCUR8Pillars(pick) : null;
       const _multiYearRec = isCDR && ['DAC','BECCS','Biochar','Enhanced Weathering','OAE','Marine Biomass','OAE','Ex-Situ Mineralisation'].includes(pick.m);
       selectedProjects.push({ ...pick, strategyMethod: key, _pillars, _multiYearRec });
     }
@@ -6342,8 +6342,9 @@ function CUR8PrinciplesPanel({ strat, prefs }) {
 
   // Pillar scores are computed on a 0–20 internal scale; normalise to 0–10 for display
   // and colour using the CUR8 design-system score band tokens.
-  const scoreColor = (s10) => {
-    if (s10 == null || s10 === 0) return 'var(--score-na)';
+  // Grey (N/A) only when the portfolio has no pillar data — 0 is a real score (red).
+  const scoreColor = (s10, hasData) => {
+    if (!hasData) return 'var(--score-na)';
     if (s10 >= 9.5) return 'var(--score-5)';
     if (s10 >= 7.0) return 'var(--score-4)';
     if (s10 >= 5.0) return 'var(--score-3)';
@@ -6436,7 +6437,7 @@ function CUR8PrinciplesPanel({ strat, prefs }) {
           {pillars.map(pl => {
             const raw = avgPillar(pl.key);          // 0–20 internal scale
             const s10 = parseFloat((raw / 2).toFixed(1)); // normalise to 0–10
-            const color = scoreColor(s10);
+            const color = scoreColor(s10, withPillars.length > 0);
             return (
               <div key={pl.key} style={{display:'grid', gridTemplateColumns:'120px 1fr 48px', gap:10, alignItems:'center'}}>
                 <div style={{fontSize:12, fontWeight:500}}>{pl.label}</div>
