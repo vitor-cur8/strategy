@@ -635,6 +635,7 @@ const DEFAULT_PREFS = {
   requirements: [],
   peers: [],
   sbtiRecord: null,
+  sbtiPathway: null, // null = default (flat residual), 'recognition' = 1% near-term, 'leadership' = 40% near-term
 };
 
 const YEARS = Array.from({length: 25}, (_,i)=> 2026+i); // 2026–2050
@@ -897,11 +898,34 @@ function computeStrategy(prefs) {
   // Companies mid-abatement have lower current emissions than baseline —
   // but the residual is still calculated from the original baseline.
   const baselineEmissions = prefs.baselineEmissions || prefs.annualEmissions;
-  const annualResidual = baselineEmissions * residualFrac; // fixed tCO₂e/yr, 1:1 removal
+  const annualResidual = baselineEmissions * residualFrac; // tCO₂e/yr at net-zero
 
-  // Annual credit volume = fixed residual (baseline × residualFrac), constant every year.
-  // Expressed as a fraction of CURRENT emissions only for the yearly breakdown display.
-  const ramp = (y) => annualResidual / (annual || annualResidual);
+  // Declining emissions model: current annual emissions fall linearly → annualResidual by targetYr.
+  // This represents the company executing its abatement roadmap over the strategy period.
+  const abatementT = (y) => Math.max(0, Math.min(1, (y - startYr) / Math.max(1, targetYr - startYr)));
+  const ongoingEmissions = (y) => annual - (annual - annualResidual) * abatementT(y);
+
+  // SBTi pathway: determines how many credits to buy each year
+  //   null          → flat annualResidual every year (existing default behaviour)
+  //   'recognition' → 1% of ongoing emissions to 2035, ramp to full residual by targetYr
+  //   'leadership'  → 40% of ongoing emissions to 2035, ramp to full residual by targetYr
+  const NEAR_TERM_YEAR = 2035;
+  const nearTermPct = prefs.sbtiPathway === 'recognition' ? 0.01
+                    : prefs.sbtiPathway === 'leadership'  ? 0.40
+                    : null;
+
+  const totalTonnesForYear = (y) => {
+    if (nearTermPct !== null) {
+      const ongoing = ongoingEmissions(y);
+      if (y <= NEAR_TERM_YEAR) return ongoing * nearTermPct;
+      const nearTermEnd = ongoingEmissions(NEAR_TERM_YEAR) * nearTermPct;
+      const t = Math.max(0, Math.min(1, (y - NEAR_TERM_YEAR) / Math.max(1, targetYr - NEAR_TERM_YEAR)));
+      return nearTermEnd + (annualResidual - nearTermEnd) * t;
+    }
+    return annualResidual; // default: flat residual
+  };
+
+  const ramp = (y) => totalTonnesForYear(y) / (annual || annualResidual);
 
   // ── SBTi Corporate Net-Zero Standard V2.0 — CDR milestone ramp ──────────
   // CDR purchase requirements as % of annual residual emissions:
@@ -971,9 +995,9 @@ function computeStrategy(prefs) {
   // Then derive a scale factor so the blended average equals prefs.pricePerTonne.
   // This means changing the price slider scales all costs proportionally while
   // preserving the SP/NBS/CDR relative price structure and the cost curve shape.
-  const refYearly = YEARS.slice(0, 10).map(y => {
-    const frac = ramp(y);
-    const totalT = annual * frac;
+  const strategyYears = YEARS.filter(y => y <= targetYr);
+  const refYearly = strategyYears.map(y => {
+    const totalT = totalTonnesForYear(y);
     const m = mix(y);
     const cost = totalT * m.SP  * priceCatRef(y, 'SP')
                + totalT * m.NBS * priceCatRef(y, 'NBS')
@@ -989,10 +1013,9 @@ function computeStrategy(prefs) {
   // Scaled priceCat: same shape, anchored to user's target blended average
   const priceCat = (y, cat) => priceCatRef(y, cat) * priceScale;
 
-  // Build per-year breakdown
-  const yearly = YEARS.map(y => {
-    const frac = ramp(y);
-    const totalT = annual * frac;
+  // Build per-year breakdown for full strategy period (2026 → targetYr)
+  const yearly = strategyYears.map(y => {
+    const totalT = totalTonnesForYear(y);
     const m = mix(y);
     const bySP  = totalT * m.SP;
     const byNBS = totalT * m.NBS;
@@ -1002,13 +1025,14 @@ function computeStrategy(prefs) {
     return { year: y, totalT, SP: bySP, NBS: byNBS, CDR: byCDR, cost, avgPrice };
   });
 
-  // 10-year totals
-  const tenYr = yearly.slice(0, 10);
+  // Full strategy totals (replaces fixed 10-year window)
+  const tenYr = yearly; // renamed conceptually — now covers 2026 → targetYr
   const tenYrTotalT = tenYr.reduce((s,r)=> s+r.totalT, 0);
   const tenYrCost = tenYr.reduce((s,r)=> s+r.cost, 0);
   const spTotal  = tenYr.reduce((s,r)=> s+r.SP, 0);
   const nbsTotal = tenYr.reduce((s,r)=> s+r.NBS, 0);
   const cdrTotal = tenYr.reduce((s,r)=> s+r.CDR, 0);
+  const stratN   = tenYr.length; // number of years in the strategy
 
   // Map strategy method keys → real DB method strings
   const METHOD_KEY_TO_DB = {
@@ -1179,10 +1203,10 @@ function computeStrategy(prefs) {
 
   return {
     yearly, tenYr, tenYrTotalT, tenYrCost,
-    spTotal, nbsTotal, cdrTotal,
+    spTotal, nbsTotal, cdrTotal, stratN,
     validProjects, roadmap,
     mix, priceCat, ramp, residualFrac,
-    annualResidual, baselineEmissions,
+    annualResidual, baselineEmissions, ongoingEmissions,
     sbtiCDRPct: prefs.sbtiAligned ? sbtiCDRPct : null,
   };
 }
@@ -4334,6 +4358,40 @@ function StepGoals({ prefs, setPrefs }) {
             label="Include superpollutants"
             desc="Immediate avoided warming — methane, ODS, HFCs. Unlocks Phase 1 credits."
           />
+
+          {prefs.sbtiAligned && (
+            <>
+              <Rule style={{margin:'24px 0'}}/>
+              <Eyebrow color="var(--color-umber)" style={{marginBottom: 14}}>SBTi retirement pathway</Eyebrow>
+              <div style={{display:'flex', flexDirection:'column', gap: 8}}>
+                {[
+                  { val: null,           label: 'Default — flat residual',      desc: 'Buy credits equal to your hard-to-abate residual from year one. Simple 1:1 neutralisation.' },
+                  { val: 'recognition',  label: 'Recognition (1% near-term)',   desc: 'Retire 1% of ongoing emissions to 2035, ramp to full residual by your net-zero year. Commercially tractable.' },
+                  { val: 'leadership',   label: 'Leadership (40% near-term)',   desc: 'Retire 40% of ongoing emissions to 2035. Signals maximum ambition — significantly higher near-term cost.' },
+                ].map(({ val, label, desc }) => {
+                  const on = prefs.sbtiPathway === val;
+                  return (
+                    <div key={String(val)} onClick={() => setPrefs({...prefs, sbtiPathway: val})}
+                      style={{
+                        padding: '12px 14px', borderRadius: 6, cursor: 'pointer', transition: 'all .15s',
+                        border: on ? '1.5px solid var(--color-dark-carbon)' : '1px solid var(--color-border)',
+                        background: on ? 'var(--color-air)' : '#fff',
+                      }}>
+                      <div style={{display:'flex', alignItems:'center', gap: 10, marginBottom: 4}}>
+                        <div style={{
+                          width: 14, height: 14, borderRadius: '50%', flexShrink: 0,
+                          border: on ? 'none' : '1.5px solid var(--color-border)',
+                          background: on ? 'var(--color-dark-carbon)' : 'transparent',
+                        }}/>
+                        <span style={{fontSize: 14, fontWeight: on ? 500 : 400}}>{label}</span>
+                      </div>
+                      <div style={{fontSize: 12, color: 'var(--color-earth)', marginLeft: 24, lineHeight: 1.5}}>{desc}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
         </Card>
 
         <Card padding={28}>
@@ -4389,7 +4447,7 @@ function StepBudget({ prefs, setPrefs }) {
             <button onClick={()=>setPrefs({...prefs, budgetMode:'price'})}
               style={modeBtn(prefs.budgetMode==='price')}>Ceiling $ / tonne</button>
             <button onClick={()=>setPrefs({...prefs, budgetMode:'total'})}
-              style={modeBtn(prefs.budgetMode==='total')}>Total 10-yr budget</button>
+              style={modeBtn(prefs.budgetMode==='total')}>Total programme budget</button>
           </div>
 
           {prefs.budgetMode === 'price' ? (
@@ -4407,12 +4465,12 @@ function StepBudget({ prefs, setPrefs }) {
                 <span>$50</span><span>$400</span>
               </div>
               <div style={{fontSize: 11, color:'var(--color-earth)', marginTop: 10, fontFamily:'var(--font-mono)', letterSpacing:'.03em'}}>
-                10-yr programme cost: <strong>{fmt.money(s.tenYrCost)}</strong> · avg <strong>{fmt.money(s.tenYrCost / 10)}</strong> / yr
+                {s.stratN}-yr programme cost: <strong>{fmt.money(s.tenYrCost)}</strong> · avg <strong>{fmt.money(s.tenYrCost / s.stratN)}</strong> / yr
               </div>
             </div>
           ) : (
             <div>
-              <Eyebrow color="var(--color-umber)" style={{marginBottom: 10}}>Total 10-year budget (USD)</Eyebrow>
+              <Eyebrow color="var(--color-umber)" style={{marginBottom: 10}}>Total programme budget (USD)</Eyebrow>
               <div style={{display:'flex', alignItems:'baseline', gap: 4, marginBottom: 8}}>
                 <span style={{fontSize: 52, fontWeight: 500, letterSpacing:'-0.02em'}}>{fmt.money(prefs.totalBudget)}</span>
               </div>
@@ -4433,7 +4491,7 @@ function StepBudget({ prefs, setPrefs }) {
             <Projected title="Total credits" val={fmt.k(s.tenYrTotalT) + ' t'} sub="tCO₂e retired"/>
             <Projected title="Total spend" val={fmt.money(s.tenYrCost)} sub="USD, nominal"/>
             <Projected title="Avg price" val={'$'+ Math.round(s.tenYrCost/s.tenYrTotalT)} sub="$ / tCO₂e"/>
-            <Projected title="% emissions covered" val={Math.round(100 * s.tenYr[9].totalT / prefs.annualEmissions) + '%'} sub="by year 10"/>
+            <Projected title="% emissions covered" val={Math.round(100 * s.tenYr[s.tenYr.length-1].totalT / prefs.annualEmissions) + '%'} sub={`by ${prefs.targetYear}`}/>
           </div>
           <Rule style={{margin:'24px 0', background:'rgba(255,255,255,.12)'}}/>
           <div style={{fontSize: 13, lineHeight: 1.5, opacity: .7}}>
@@ -6061,7 +6119,7 @@ function StrategyView({ prefs, strat }) {
       {/* header */}
       <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-end', marginBottom: 32, gap: 40}}>
         <div>
-          <Eyebrow style={{marginBottom: 12}}>10-year purchase strategy · {prefs.targetYear} net-zero</Eyebrow>
+          <Eyebrow style={{marginBottom: 12}}>{strat.stratN}-year purchase strategy · {prefs.targetYear} net-zero</Eyebrow>
           <h1 style={{fontSize: 44, fontWeight: 500, letterSpacing:'-0.02em', lineHeight: 1.05, maxWidth: 780}}>
             A phased pathway from <em style={{fontStyle:'normal', color:'var(--color-umber)', fontWeight:500}}>immediate</em> avoided warming to <em style={{fontStyle:'normal', color:'var(--color-dark-moss)'}}>durable</em> removal.
           </h1>
@@ -6078,9 +6136,9 @@ function StrategyView({ prefs, strat }) {
       <div style={{display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap: 0, border:'1px solid var(--color-border)', borderRadius: 8, background:'#fff', marginBottom: 24, overflow:'hidden'}}>
         <Kpi label="Annual removal requirement" val={fmt.k(strat.tenYr[0].totalT)} unit="tCO₂e / yr"
              sub={`${prefs.sbtiAligned ? '10' : '20'}% of ${prefs.baselineYear || 2019} baseline · hard-to-abate residual`}/>
-        <Kpi label="10-yr total credits" val={fmt.k(strat.tenYrTotalT)} unit="tCO₂e"
-             sub={`${fmt.k(strat.tenYr[0].totalT)} tCO₂e/yr × 10 years · 1:1 permanent removal`}/>
-        <Kpi label="Avg annual cost" val={fmt.money(strat.tenYrCost / 10)} unit="USD / yr"
+        <Kpi label={`${strat.stratN}-yr total credits`} val={fmt.k(strat.tenYrTotalT)} unit="tCO₂e"
+             sub={`${fmt.k(strat.tenYr[0].totalT)} tCO₂e/yr × ${strat.stratN} years · 1:1 permanent removal`}/>
+        <Kpi label="Avg annual cost" val={fmt.money(strat.tenYrCost / strat.stratN)} unit="USD / yr"
              sub={`avg $${Math.round(strat.tenYrCost/strat.tenYrTotalT)} / tCO₂e`}/>
         <Kpi label="Projects matched" val={strat.validProjects.length} unit=""
              sub={`across ${prefs.regions.length} regions`}
@@ -6093,7 +6151,7 @@ function StrategyView({ prefs, strat }) {
           <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom: 24}}>
             <div>
               <Eyebrow style={{marginBottom: 8}}>Credit volume · annual retirement</Eyebrow>
-              <div style={{fontSize: 18, fontWeight: 500}}>10-year purchase schedule</div>
+              <div style={{fontSize: 18, fontWeight: 500}}>{strat.stratN}-year purchase schedule</div>
               <div style={{fontSize: 13, color:'var(--color-earth)', marginTop: 2}}>Stacked by credit category, tCO₂e</div>
             </div>
             <ChartStyleToggle/>
@@ -6108,7 +6166,7 @@ function StrategyView({ prefs, strat }) {
 
         <Card padding={28}>
           <Eyebrow style={{marginBottom: 8}}>Portfolio mix</Eyebrow>
-          <div style={{fontSize: 18, fontWeight: 500, marginBottom: 24}}>10-year total, by category</div>
+          <div style={{fontSize: 18, fontWeight: 500, marginBottom: 24}}>{strat.stratN}-year total, by category</div>
 
           <DonutBreakdown
             items={[
@@ -6177,28 +6235,28 @@ function StrategyView({ prefs, strat }) {
           accent="var(--cat-sp)"
           desc={`Methane, ODS and HFC credits deliver rapid avoided warming at $100/t. ${prefs.sbtiAligned ? 'BVCM Recognition: covers ≥1% of ongoing emissions via verified removals while CDR milestones ramp up.' : 'Phase out by 2031 as NBS and CDR scale.'}`}
           stat={`${fmt.k(strat.spTotal)} tCO₂e`}
-          statLabel="10-yr SP volume"
+          statLabel={`${strat.stratN}-yr SP volume`}
           active={prefs.includeSuperpollutants}
         />
         <PhaseCard
           phase="02"
-          years="2026–2040"
+          years={`2026–${Math.min(prefs.targetYear, 2040)}`}
           title="Nature-based bridge"
           accent="var(--cat-nbs)"
           desc={`Reforestation (ARR), wetland/mangrove restoration, and soil carbon sequestration bridge the gap while CDR scales to its ${prefs.sbtiAligned ? '35% milestone by 2040' : 'dominant phase from 2035'}. Removal credits only — no avoidance.`}
           stat={`${fmt.k(strat.nbsTotal)} tCO₂e`}
-          statLabel="10-yr NBS volume"
+          statLabel={`${strat.stratN}-yr NBS volume`}
         />
         <PhaseCard
           phase="03"
-          years={prefs.sbtiAligned ? '2026–2050 (scaling)' : '2035–2050'}
+          years={prefs.sbtiAligned ? `2026–${prefs.targetYear} (scaling)` : `2035–${prefs.targetYear}`}
           title="Durable CDR"
           accent="var(--cat-cdr)"
           desc={prefs.sbtiAligned
-            ? 'CDR scales per SBTi milestones: 5% by 2030 → 16% by 2035 → 35% by 2040 → 100% by 2050. Biochar, ERW and DAC. Permanent, 1:1 neutralisation of the hard-to-abate residual.'
+            ? `CDR scales per SBTi milestones: 5% by 2030 → 16% by 2035 → 35% by 2040 → 100% by ${prefs.targetYear}. Biochar, ERW and DAC. Permanent, 1:1 neutralisation of the hard-to-abate residual.`
             : 'Biochar, ERW and DAC dominate from 2035 as supply matures. Permanent removal at $155–250/t forms the long-term core.'}
           stat={`${fmt.k(strat.cdrTotal)} tCO₂e`}
-          statLabel="10-yr CDR volume"
+          statLabel={`${strat.stratN}-yr CDR volume`}
         />
       </div>
 
@@ -6540,10 +6598,10 @@ function RationaleTimeline({ prefs, strat }) {
   const [expanded, setExpanded] = React.useState(0);
 
   const yr1   = strat.tenYr[0];
-  const yr5   = strat.yearly.find(r => r.year === 2030) || strat.tenYr[4];
-  const yr10  = strat.tenYr[9];
-  const yr15  = strat.yearly.find(r => r.year === 2040) || strat.yearly[14];
-  const yr25  = strat.yearly[strat.yearly.length-1];
+  const yr5   = strat.yearly.find(r => r.year === 2030) || strat.tenYr[Math.min(4, strat.tenYr.length - 1)];
+  const yr10  = strat.tenYr[strat.tenYr.length - 1];
+  const yr15  = strat.yearly.find(r => r.year === 2040) || strat.yearly[Math.min(14, strat.yearly.length - 1)];
+  const yr25  = strat.yearly[strat.yearly.length - 1];
 
   const entries = [
     prefs.includeSuperpollutants && {
@@ -6570,7 +6628,7 @@ function RationaleTimeline({ prefs, strat }) {
       trigger: 'Indonesia and Brazil cleared the permit backlog in late 2025 — Q1 2026 issuance is up 22% YoY. Top-quintile NBS now commands a 3.4× premium that won\'t soften until 2029.',
       mechanism: 'Reforestation and mangrove projects sequester carbon over 20-40 years and stack co-benefits (biodiversity, community income) that hedge against any policy challenge to nature credits.',
       evidence: [
-        ['10-yr NBS volume',   `${fmt.k(strat.nbsTotal)} tCO₂e`],
+        [`${strat.stratN}-yr NBS volume`,   `${fmt.k(strat.nbsTotal)} tCO₂e`],
         ['Avg cost / tonne',   `$${Math.round(strat.priceCat(2028,'NBS'))}`],
         ['Co-benefit weight',  `+1.1 score uplift`],
       ],
@@ -6602,7 +6660,7 @@ function RationaleTimeline({ prefs, strat }) {
       trigger: 'Biochar capacity in SE Asia comes online Q3 2026. ERW pilots in Cornwall and Iowa have validated MRV. Both are now bankable, both still trade at the early-mover discount.',
       mechanism: 'Biochar locks carbon in soils for 100-1,000 years. Enhanced rock weathering durably converts CO₂ to bicarbonate ions in seawater. Both qualify under the strict SBTi NZ 2.0 durability floor.',
       evidence: [
-        ['10-yr CDR volume',     `${fmt.k(strat.cdrTotal)} tCO₂e`],
+        [`${strat.stratN}-yr CDR volume`,     `${fmt.k(strat.cdrTotal)} tCO₂e`],
         ['Avg CDR price 2032',   `$${Math.round(strat.priceCat(2032,'CDR'))}`],
         ['Cost vs 2026 spot',    `−${Math.round((1 - strat.priceCat(2032,'CDR')/strat.priceCat(2026,'CDR'))*100)}%`],
       ],
@@ -7934,7 +7992,7 @@ function PrefsDrawer({ prefs, setPrefs, onClose }) {
               ) : (
                 <>
                   <div style={{display:'flex', justifyContent:'space-between', marginBottom: 6}}>
-                    <span style={{fontSize: 13}}>10-yr total</span>
+                    <span style={{fontSize: 13}}>Programme total</span>
                     <span style={{fontFamily:'var(--font-mono)', fontSize: 13, fontWeight:500}}>{fmt.money(prefs.totalBudget)}</span>
                   </div>
                   <input type="range" min={20000000} max={500000000} step={5000000} value={prefs.totalBudget}
@@ -8096,7 +8154,7 @@ function BusinessCaseView({ prefs, strat }) {
   const years = prefs.targetYear - 2026;
   // Single source of truth: use the strategy engine's computed 10-year cost
   const totalBudget   = strat.tenYrCost;
-  const annualBudget  = strat.tenYrCost / 10;
+  const annualBudget  = strat.tenYrCost / strat.stratN;
   const peakAnnualSpend = Math.max(...strat.tenYr.map(r => r.cost));
   const peakYear        = strat.tenYr.reduce((best, r) => r.cost > best.cost ? r : best, strat.tenYr[0]).year;
 
@@ -8138,7 +8196,7 @@ function BusinessCaseView({ prefs, strat }) {
         </div>
         <div style={{display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap: 1, background:'rgba(255,255,255,0.1)', borderRadius: 6, overflow:'hidden'}}>
           {[
-            { label:'Total programme', value: fmt.money(totalBudget), sub: '10-year commitment' },
+            { label:'Total programme', value: fmt.money(totalBudget), sub: `${strat.stratN}-year commitment` },
             { label:'Annual budget', value: fmt.money(annualBudget), sub: 'avg. per year' },
             { label:'Peak annual spend', value: fmt.money(peakAnnualSpend), sub: `est. ${peakYear}` },
             { label:'Net-zero year', value: String(prefs.targetYear), sub: 'SBTi aligned' },
@@ -8594,7 +8652,7 @@ function BCPeers({ prefs, strat }) {
   const peer = displayPeer;
 
   const orgShort = (prefs.orgName || '').split(' ')[0];
-  const annualBudget = strat ? strat.tenYrCost / 10 : 0;
+  const annualBudget = strat ? strat.tenYrCost / strat.stratN : 0;
   const avgPeerSpend = displayPeers.length
     ? displayPeers.reduce((s, p) => s + parseFloat((p.spend || '$0').replace(/[^0-9.]/g,'')), 0) / displayPeers.length
     : 0;
