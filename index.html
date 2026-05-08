@@ -4300,16 +4300,36 @@ function Stat({ n, l }) {
 
 // -------------- STEP 1: GOALS -------------------------------
 function StepGoals({ prefs, setPrefs }) {
-  const toggleGoal = (g) => {
-    const on = prefs.goals.includes(g);
-    setPrefs({...prefs, goals: on ? prefs.goals.filter(x=>x!==g) : [...prefs.goals, g]});
-  };
   const TARGET_YEARS = [2030, 2035, 2040, 2045, 2050];
   const SUGGESTED_GOALS = [
     'Biodiversity co-benefits',
     'Geographic diversity',
     'Support novel CDR methods',
   ];
+  // SBTi pathway options — shown as exclusive goals when SBTi-aligned
+  const PATHWAY_GOALS = [
+    { label: 'SBTi Recognition pathway', pathway: 'recognition', desc: 'Retire 1% of ongoing emissions to 2035, ramp to full residual at net-zero year.' },
+    { label: 'SBTi Leadership pathway',  pathway: 'leadership',  desc: 'Retire 40% of ongoing emissions to 2035. Maximum ambition — higher near-term cost.' },
+  ];
+  const PATHWAY_LABELS = PATHWAY_GOALS.map(p => p.label);
+
+  const toggleGoal = (g) => {
+    const pathway = PATHWAY_GOALS.find(p => p.label === g);
+    if (pathway) {
+      // Mutually exclusive: clicking the active one clears it, otherwise switch
+      const isOn = prefs.sbtiPathway === pathway.pathway;
+      setPrefs({
+        ...prefs,
+        sbtiPathway: isOn ? null : pathway.pathway,
+        goals: isOn
+          ? prefs.goals.filter(x => x !== g)
+          : [...prefs.goals.filter(x => !PATHWAY_LABELS.includes(x)), g],
+      });
+      return;
+    }
+    const on = prefs.goals.includes(g);
+    setPrefs({...prefs, goals: on ? prefs.goals.filter(x=>x!==g) : [...prefs.goals, g]});
+  };
   return (
     <div>
       <Eyebrow style={{marginBottom: 14}}>Your climate commitments</Eyebrow>
@@ -4359,39 +4379,6 @@ function StepGoals({ prefs, setPrefs }) {
             desc="Immediate avoided warming — methane, ODS, HFCs. Unlocks Phase 1 credits."
           />
 
-          {prefs.sbtiAligned && (
-            <>
-              <Rule style={{margin:'24px 0'}}/>
-              <Eyebrow color="var(--color-umber)" style={{marginBottom: 14}}>SBTi retirement pathway</Eyebrow>
-              <div style={{display:'flex', flexDirection:'column', gap: 8}}>
-                {[
-                  { val: null,           label: 'Default — flat residual',      desc: 'Buy credits equal to your hard-to-abate residual from year one. Simple 1:1 neutralisation.' },
-                  { val: 'recognition',  label: 'Recognition (1% near-term)',   desc: 'Retire 1% of ongoing emissions to 2035, ramp to full residual by your net-zero year. Commercially tractable.' },
-                  { val: 'leadership',   label: 'Leadership (40% near-term)',   desc: 'Retire 40% of ongoing emissions to 2035. Signals maximum ambition — significantly higher near-term cost.' },
-                ].map(({ val, label, desc }) => {
-                  const on = prefs.sbtiPathway === val;
-                  return (
-                    <div key={String(val)} onClick={() => setPrefs({...prefs, sbtiPathway: val})}
-                      style={{
-                        padding: '12px 14px', borderRadius: 6, cursor: 'pointer', transition: 'all .15s',
-                        border: on ? '1.5px solid var(--color-dark-carbon)' : '1px solid var(--color-border)',
-                        background: on ? 'var(--color-air)' : '#fff',
-                      }}>
-                      <div style={{display:'flex', alignItems:'center', gap: 10, marginBottom: 4}}>
-                        <div style={{
-                          width: 14, height: 14, borderRadius: '50%', flexShrink: 0,
-                          border: on ? 'none' : '1.5px solid var(--color-border)',
-                          background: on ? 'var(--color-dark-carbon)' : 'transparent',
-                        }}/>
-                        <span style={{fontSize: 14, fontWeight: on ? 500 : 400}}>{label}</span>
-                      </div>
-                      <div style={{fontSize: 12, color: 'var(--color-earth)', marginLeft: 24, lineHeight: 1.5}}>{desc}</div>
-                    </div>
-                  );
-                })}
-              </div>
-            </>
-          )}
         </Card>
 
         <Card padding={28}>
@@ -4420,6 +4407,38 @@ function StepGoals({ prefs, setPrefs }) {
                 </div>
               );
             })}
+
+            {/* SBTi pathway goals — only when SBTi-aligned */}
+            {prefs.sbtiAligned && (
+              <>
+                <Rule style={{margin:'10px 0 6px'}}/>
+                <div style={{fontFamily:'var(--font-mono)', fontSize: 10, letterSpacing:'.1em', textTransform:'uppercase', color:'var(--color-umber)', marginBottom: 2, paddingLeft: 2}}>SBTi retirement ambition</div>
+                {PATHWAY_GOALS.map(({ label, pathway, desc }) => {
+                  const on = prefs.sbtiPathway === pathway;
+                  return (
+                    <div key={label} onClick={() => toggleGoal(label)}
+                      style={{
+                        display:'flex', alignItems:'flex-start', gap: 12,
+                        padding: '12px 14px',
+                        border: on ? '1px solid var(--color-dark-carbon)' : '1px solid var(--color-border)',
+                        background: on ? 'var(--color-air)' : '#fff',
+                        borderRadius: 6, cursor:'pointer', transition:'all .15s'
+                      }}>
+                      <div style={{
+                        width: 16, height: 16, borderRadius: '50%', marginTop: 1,
+                        border: on ? 'none' : '1.5px solid var(--color-border)',
+                        background: on ? 'var(--color-dark-carbon)' : 'transparent',
+                        flexShrink: 0
+                      }}/>
+                      <div>
+                        <div style={{fontSize: 14, fontWeight: on ? 500 : 400}}>{label}</div>
+                        <div style={{fontSize: 12, color: 'var(--color-earth)', marginTop: 2, lineHeight: 1.5}}>{desc}</div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </>
+            )}
           </div>
         </Card>
       </div>
