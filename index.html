@@ -1174,6 +1174,7 @@ function computeStrategy(prefs) {
 
     const annualVols = YEARS.map(y => {
       const row = yearly.find(r => r.year === y);
+      if (!row) return 0; // year beyond strategy horizon
       const catT = row[m.cat];
       // Ramp per-method availability: CDR starts low, NBS mid, SP high
       let avail = 1;
@@ -1187,6 +1188,7 @@ function computeStrategy(prefs) {
     const sum = annualVols.reduce((s,v)=> s+v, 0);
     const targetSum = YEARS.reduce((s,y) => {
       const row = yearly.find(r=>r.year===y);
+      if (!row) return s; // year beyond strategy horizon
       return s + row[m.cat] / countInCat;
     }, 0);
     const scale = sum > 0 ? targetSum / sum : 0;
