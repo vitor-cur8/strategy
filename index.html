@@ -3648,16 +3648,21 @@ function parseSustainabilityReport(text) {
   ]);
   if (s3) result.scope3 = Math.round(s3.value);
 
-  const tot = tryPatterns([
-    /[Tt]otal\s+GHG\s+emissions?\s*[\s:–—(]+(?:market[- ]based\))?\s*([\d,]+)/,
-    /[Tt]otal\s+(?:carbon\s+)?emissions?\s*[\s:–—]\s*([\d,]+)/,
-    /GHG\s+emissions?\s*[\s:–—]\s*([\d,]+)/,
-  ]);
-  if (tot) result.totalGhg = Math.round(tot.value);
-
-  // Derive total from scopes if not found directly
-  if (!result.totalGhg && result.scope1 != null && result.scope3 != null) {
-    result.totalGhg = (result.scope1 || 0) + (result.scope2 || 0) + (result.scope3 || 0);
+  // Always prefer computed sum when all scopes are available — mathematically correct
+  // and avoids broad regex patterns capturing wrong numbers (e.g. percentages, footnotes)
+  if (result.scope1 != null && result.scope2 != null && result.scope3 != null) {
+    result.totalGhg = result.scope1 + result.scope2 + result.scope3;
+  } else {
+    // Fall back to direct parse only when scopes aren't all available
+    const tot = tryPatterns([
+      /[Tt]otal\s+GHG\s+emissions?\s*[\s:–—(]+(?:market[- ]based\))?\s*([\d,]{4,})/,
+      /[Tt]otal\s+(?:carbon\s+)?emissions?\s*[\s:–—]\s*([\d,]{4,})/,
+    ]);
+    if (tot) {
+      result.totalGhg = Math.round(tot.value);
+    } else if (result.scope1 != null && result.scope3 != null) {
+      result.totalGhg = (result.scope1 || 0) + (result.scope2 || 0) + (result.scope3 || 0);
+    }
   }
 
   // --- Target years ---
