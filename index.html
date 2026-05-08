@@ -1809,6 +1809,8 @@ function enrichPrefs(prefs) {
       founded: co.founded,
       annualEmissions: co.annualEmissions,
       emissionsBreakdown: co.emissionsBreakdown,
+      baselineEmissions: co.baselineEmissions ?? null,
+      baselineYear: co.baselineYear ?? 2019,
       targetYear: co.targetYear,
       sbtiAligned: co.sbtiAligned,
       includeSuperpollutants: co.includeSuperpollutants,
@@ -2386,6 +2388,46 @@ COMPANY_DB.push(
     ],
     peers: ['ABB','Schneider Electric','Honeywell','GE'],
     industryTopics: ['industrial decarbonisation','energy efficiency','scope 3 manufacturing','electrification','industrial CDR'],
+  },
+  {
+    match: ['astrazeneca','astra zeneca','astra-zeneca','az pharma'],
+    orgName: 'AstraZeneca PLC', industry: 'Pharmaceuticals & Life Sciences',
+    hq: 'Cambridge, United Kingdom', employees: 89900, revenue: 'USD 58.7B (FY2025)', founded: 1999,
+    // Source: AstraZeneca Annual Report & Form 20-F 2025
+    // Scope 1+2 (market-based) 2025: 73,903 tCO₂e | Scope 3 2025: 6,197,690 tCO₂e
+    // S1+2 baseline year: 2015 (620,818 tCO₂e) | S3 baseline year: 2019 (5,025,169 tCO₂e)
+    annualEmissions: 6271593, // 2025: S1+S2 market-based (73,903) + S3 (6,197,690)
+    emissionsBreakdown: { scope1: 62587, scope2: 11316, scope3: 6197690 },
+    // Combined baseline: 2015 S1+2 (620,818) + 2019 S3 (5,025,169) = 5,645,987
+    baselineEmissions: 5645987,
+    baselineYear: 2019,
+    targetYear: 2045, sbtiAligned: true, includeSuperpollutants: false,
+    pricePerTonne: 165, totalBudget: null,
+    goals: [
+      'Net zero across full value chain by 2045 (SBTi-verified)',
+      '98% absolute reduction in Scope 1 & 2 GHG emissions by 2026 vs 2015 baseline (88.1% achieved)',
+      '50% absolute reduction in Scope 3 GHG emissions by 2030 vs 2019 baseline',
+      '90% absolute reduction in Scope 3 GHG emissions by 2045 vs 2019 baseline',
+      'Carbon negative across value chain by 2030 via nature-based solutions (Ambition Zero Carbon)',
+      '100% electric commercial fleet — 80%+ transitioned by end of 2025',
+      'Transition full pMDI inhaler portfolio to near-zero GWP Next Generation Propellant (NGP)',
+      'Engage suppliers covering majority of spend to set SBTi-validated targets by end of 2025',
+    ],
+    team: [
+      { name: 'Pascal Soriot', role: 'CEO', email: 'ceo@astrazeneca.com' },
+      { name: 'Pam Cheng', role: 'EVP Global Operations, IT & Chief Sustainability Officer', email: 'sustainability@astrazeneca.com' },
+      { name: 'Aradhana Sarin', role: 'CFO', email: 'cfo@astrazeneca.com' },
+    ],
+    requirements: [
+      'SBTi-verified and science-aligned credits only',
+      'Nature-based solutions for near-term carbon-negative 2030 commitment',
+      'CDR mix required for long-term net-zero neutralisation by 2045',
+      'Permanent, high-durability removals preferred for residual coverage',
+      'CDP A-list level disclosure and annual third-party verification required',
+      'No REDD+ or avoided-deforestation-only credits',
+    ],
+    peers: ['Roche','Pfizer','Novartis','Johnson & Johnson','GSK','Sanofi'],
+    industryTopics: ['pharmaceutical emissions','F-gas pMDI inhalers','NGP transition','scope 3 supply chain','life sciences decarbonisation','Ambition Zero Carbon'],
   }
 );
 
