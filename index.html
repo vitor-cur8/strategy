@@ -790,9 +790,23 @@ function computeCUR8Pillars(p) {
   futurePotential = Math.min(20, futurePotential);
 
   // Pillar 5: BEYOND CARBON — biodiversity, community, social co-benefits
+  // Method-based baseline: each credit type has an inherent co-benefit floor
   let beyondCarbon = 0;
-  if (CO_BENEFIT_PATTERN.test(projectText)) beyondCarbon += 14;
-  if (/award|certif|ccb|fairtrade|sdg/i.test(projectText)) beyondCarbon += 6;
+  if (['ARR','Ecosystem Restoration','Mangrove Restoration','Seagrass Restoration','Kelp Sequestration'].includes(p.m))
+    beyondCarbon = 14;  // reforestation & wetland restoration deliver biodiversity, habitat, watershed by definition
+  else if (['IFM','Ag Land Mgmt','Agroforestry'].includes(p.m))
+    beyondCarbon = 12;  // forest & landscape mgmt — biodiversity + community livelihoods
+  else if (['Soil Carbon','Biochar'].includes(p.m))
+    beyondCarbon = 8;   // soil health, crop yield, smallholder income
+  else if (['Enhanced Weathering','OAE','River Alkalinity','Wastewater Alkalinity'].includes(p.m))
+    beyondCarbon = 6;   // soil/ocean chemistry benefits, localised employment
+  else if (['BECCS','Biogenic CO2','Marine Biomass'].includes(p.m))
+    beyondCarbon = 4;   // limited direct co-benefits; some local employment
+  else if (['DAC','Ex-Situ Mineralisation','Microbial CDR'].includes(p.m))
+    beyondCarbon = 2;   // engineered CDR — minimal nature co-benefits, some jobs
+  // Text-match boosts on top of method baseline
+  if (CO_BENEFIT_PATTERN.test(projectText)) beyondCarbon = Math.max(beyondCarbon, 14);
+  if (/award|certif|ccb|fairtrade|sdg/i.test(projectText)) beyondCarbon = Math.min(20, beyondCarbon + 6);
   beyondCarbon = Math.min(20, beyondCarbon);
 
   const total = impact + integrity + deliveryRisk + futurePotential + beyondCarbon;
@@ -6861,9 +6875,19 @@ function RationaleTimeline({ prefs, strat }) {
   const yr15  = strat.yearly.find(r => r.year === 2040) || strat.yearly[Math.min(14, strat.yearly.length - 1)];
   const yr25  = strat.yearly[strat.yearly.length - 1];
 
-  const entries = [
+  const tgt = prefs.targetYear;
+  const horizon = tgt - 2026; // e.g. 4 for 2030, 14 for 2040, 24 for 2050
+
+  // Compute candidate decision years scaled to strategy horizon
+  const yrNBS1   = 2027;                                     // NBS intro — always year 2
+  const yrNBSpk  = Math.min(2030, tgt - 1);                  // NBS peak — at most 2030, before target
+  const yrCDR1   = Math.min(2032, tgt);                      // CDR intro — at most 2032
+  const yrCDRscl = Math.min(2036, tgt);                      // CDR scale — at most 2036
+  const yrSteady = tgt;                                      // Steady state — always at target
+
+  const allEntries = [
     prefs.includeSuperpollutants && {
-      year: '2026',
+      year: String(2026),
       window: 'Now → 2028',
       cat: 'SP',
       title: 'Buy methane abatement first — every ton bought now is worth ~30× by warming impact',
@@ -6878,9 +6902,9 @@ function RationaleTimeline({ prefs, strat }) {
       buy: 'Tradewater OGW-1 · OMMC1 ACR-812',
     },
 
-    {
-      year: '2027',
-      window: '2027 → 2029',
+    horizon >= 2 && {
+      year: String(yrNBS1),
+      window: `${yrNBS1} → ${Math.min(yrNBS1+2, tgt)}`,
       cat: 'NBS',
       title: 'Layer in nature-based credits before reforestation issuance saturates premium tier',
       trigger: 'Indonesia and Brazil cleared the permit backlog in late 2025 — Q1 2026 issuance is up 22% YoY. Top-quintile NBS now commands a 3.4× premium that won\'t soften until 2029.',
@@ -6894,70 +6918,80 @@ function RationaleTimeline({ prefs, strat }) {
       buy: 'Mangrove Mitra · GreenTrees MS Valley',
     },
 
-    {
-      year: '2030',
-      window: '2030 → 2033',
+    horizon >= 4 && yrNBSpk !== yrNBS1 && yrNBSpk !== tgt && {
+      year: String(yrNBSpk),
+      window: `${yrNBSpk} → ${Math.min(yrNBSpk+3, tgt)}`,
       cat: 'NBS',
       title: 'Hold the NBS bridge while durable CDR supply ramps',
       trigger: 'By 2030 your superpollutant tonnage starts tapering naturally as the easy-win methane sources are remediated. NBS volume needs to peak here to bridge until durable supply arrives.',
       mechanism: 'NBS at scale buys time. The blended NBS+SP price (~$95/t in 2030) is still 3.5× cheaper than DAC and 2× cheaper than BECCS — every dollar spent here releases CDR budget for later vintages.',
       evidence: [
-        ['2030 NBS share',     `${Math.round(strat.mix(2030).NBS * 100)}% of mix`],
-        ['Avg blended price',  `$${Math.round(yr5.avgPrice)}`],
-        ['Coverage by 2030',   `${Math.round(100 * yr5.totalT / prefs.annualEmissions)}%`],
+        [`${yrNBSpk} NBS share`, `${Math.round(strat.mix(yrNBSpk).NBS * 100)}% of mix`],
+        ['Avg blended price',    `$${Math.round(yr5.avgPrice)}`],
+        ['Coverage by 2030',     `${Math.round(100 * yr5.totalT / prefs.annualEmissions)}%`],
       ],
       risk: 'Don\'t over-allocate. Verra-style methodology resets historically reduced effective vintage by 15-20%.',
       buy: 'Treeconomy UK · Soilworks Iberia',
     },
 
-    {
-      year: '2032',
-      window: '2032 → 2036',
+    horizon >= 6 && yrCDR1 !== tgt && {
+      year: String(yrCDR1),
+      window: `${yrCDR1} → ${Math.min(yrCDR1+4, tgt)}`,
       cat: 'CDR',
       title: 'Open durable removal positions — biochar and ERW first, while priced below the long-run curve',
       trigger: 'Biochar capacity in SE Asia comes online Q3 2026. ERW pilots in Cornwall and Iowa have validated MRV. Both are now bankable, both still trade at the early-mover discount.',
       mechanism: 'Biochar locks carbon in soils for 100-1,000 years. Enhanced rock weathering durably converts CO₂ to bicarbonate ions in seawater. Both qualify under the strict SBTi NZ 2.0 durability floor.',
       evidence: [
-        [`${strat.stratN}-yr CDR volume`,     `${fmt.k(strat.cdrTotal)} tCO₂e`],
-        ['Avg CDR price 2032',   `$${Math.round(strat.priceCat(2032,'CDR'))}`],
-        ['Cost vs 2026 spot',    `−${Math.round((1 - strat.priceCat(2032,'CDR')/strat.priceCat(2026,'CDR'))*100)}%`],
+        [`${strat.stratN}-yr CDR volume`, `${fmt.k(strat.cdrTotal)} tCO₂e`],
+        [`Avg CDR price ${yrCDR1}`,       `$${Math.round(strat.priceCat(yrCDR1,'CDR'))}`],
+        ['Cost vs 2026 spot',             `−${Math.round((1 - strat.priceCat(yrCDR1,'CDR')/strat.priceCat(2026,'CDR'))*100)}%`],
       ],
       risk: 'Pre-FID supply. Use offtake structures with delivery guarantees, not spot. Diversify across ≥3 developers per method.',
       buy: 'Varaha Biochar · Carboneers ERW',
     },
 
-    {
-      year: '2036',
-      window: '2036 → 2040',
+    horizon >= 10 && yrCDRscl !== yrCDR1 && yrCDRscl !== tgt && {
+      year: String(yrCDRscl),
+      window: `${yrCDRscl} → ${Math.min(yrCDRscl+4, tgt)}`,
       cat: 'CDR',
       title: 'Scale into DAC and BECCS as cost compression hits the curve',
-      trigger: `By ${prefs.targetYear - 4}, Class I DAC facilities (Mission Zero, Heirloom, Climeworks) reach commercial-scale tolling. Stockholm Exergi's BECCS retrofit ships first North Sea cargo. Per-tonne cost compression is real.`,
-      mechanism: 'DAC and BECCS deliver gigatonne-grade durability with measurable storage. With residual emissions falling under your ${prefs.targetYear} target, durable removals become the load-bearing layer.',
+      trigger: `By ${yrCDRscl}, Class I DAC facilities (Mission Zero, Heirloom, Climeworks) reach commercial-scale tolling. Stockholm Exergi's BECCS retrofit ships first North Sea cargo. Per-tonne cost compression is real.`,
+      mechanism: `DAC and BECCS deliver gigatonne-grade durability with measurable storage. With residual emissions falling under your ${tgt} target, durable removals become the load-bearing layer.`,
       evidence: [
-        [`${prefs.targetYear} CDR share`, `${Math.round(strat.mix(prefs.targetYear).CDR * 100)}% of mix`],
-        ['Avg CDR price 2038',            `$${Math.round(strat.priceCat(2038,'CDR'))}`],
-        ['Coverage by target',            `${Math.round(100 * yr15.totalT / prefs.annualEmissions)}%`],
+        [`${tgt} CDR share`,       `${Math.round(strat.mix(tgt).CDR * 100)}% of mix`],
+        [`Avg CDR price ${yrCDRscl}`, `$${Math.round(strat.priceCat(yrCDRscl,'CDR'))}`],
+        ['Coverage by target',     `${Math.round(100 * yr15.totalT / prefs.annualEmissions)}%`],
       ],
       risk: 'Storage permitting in the EU may delay BECCS by 12-18 months. Hedge with mineralisation-based DAC offtake.',
       buy: 'Mission Zero DAC · Stockholm BECCS',
     },
 
     {
-      year: prefs.targetYear,
-      window: `${prefs.targetYear} → 2050`,
+      year: String(yrSteady),
+      window: `${yrSteady} → 2050`,
       cat: 'CDR',
       title: 'Steady-state durable removal — match every residual tonne with permanent storage',
-      trigger: `From ${prefs.targetYear} onward, abatement plateaus. The remaining ${fmt.k(yr15.totalT)} tCO₂e of residual emissions must be neutralised with credits durable enough to count under SBTi NZ 2.0.`,
+      trigger: `From ${yrSteady} onward, abatement plateaus. The remaining ${fmt.k(yr25.totalT)} tCO₂e of residual emissions must be neutralised with credits durable enough to count under SBTi NZ 2.0.`,
       mechanism: 'Tonne-for-tonne neutralisation. The portfolio shifts to ≥1,000-year permanence credits — primarily geological storage from DAC and BECCS, with biochar as a co-benefit-rich complement.',
       evidence: [
-        ['Annual neutralisation',    `${fmt.k(yr25.totalT)} tCO₂e`],
-        ['CDR share by 2050',         `${Math.round(strat.mix(2050).CDR * 100)}%`],
-        ['Avg price 2050',            `$${Math.round(yr25.avgPrice)}`],
+        ['Annual neutralisation', `${fmt.k(yr25.totalT)} tCO₂e`],
+        ['CDR share at target',   `${Math.round(strat.mix(yrSteady).CDR * 100)}%`],
+        ['Avg price at target',   `$${Math.round(yr25.avgPrice)}`],
       ],
       risk: 'Counterparty concentration. By 2050 the durable market has consolidated — ensure ≤25% of volume sits with any single developer.',
       buy: 'DAC offtake · BECCS · Biochar (steady)',
     },
   ].filter(Boolean);
+
+  // Deduplicate by year (keep last occurrence) and clamp to strategy horizon
+  const seen = new Set();
+  const entries = allEntries.filter(e => {
+    const yr = parseInt(e.year);
+    if (yr > tgt) return false;
+    if (seen.has(e.year)) return false;
+    seen.add(e.year);
+    return true;
+  });
 
   return (
     <Card padding={0} style={{marginBottom: 20}}>
@@ -6967,7 +7001,7 @@ function RationaleTimeline({ prefs, strat }) {
         <div>
           <Eyebrow style={{marginBottom: 8}}>Strategy rationale · why this credit, why now</Eyebrow>
           <div style={{fontSize: 22, fontWeight: 500, letterSpacing:'-0.01em', maxWidth: 620, lineHeight: 1.2}}>
-            Six decisions that shape your pathway
+            {entries.length === 1 ? 'One decision' : `${['Two','Three','Four','Five','Six'][entries.length-2] || entries.length} decisions`} that shape your pathway
           </div>
           <div style={{fontSize: 13, color:'var(--color-earth)', marginTop: 6, maxWidth: 540}}>
             Each entry is a moment in your strategy where a specific credit type becomes the right answer. Click to expand.
