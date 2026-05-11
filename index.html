@@ -635,7 +635,14 @@ const DEFAULT_PREFS = {
   requirements: [],
   peers: [],
   sbtiRecord: null,
-  sbtiPathway: null, // null = default (flat residual), 'recognition' = 1% near-term, 'leadership' = 40% near-term
+  sbtiPathway: null,       // null = default (flat residual), 'recognition' = 1% near-term, 'leadership' = 40% near-term
+  reductionPct: 90,        // % emissions reduction committed by net-zero year
+  contractStructure: 'spot', // 'bilateral' | 'coalition' | 'spot'
+  internalCarbonPrice: null, // USD/tCO₂e — for ICP gap analysis
+  mixNature: 40,           // % NBS in blended CDR mix
+  mixBiochar: 30,          // % biochar CDR
+  mixBeccs: 20,            // % BECCS
+  mixDac: 10,              // % DAC (four fields must sum to 100)
 };
 
 const YEARS = Array.from({length: 25}, (_,i)=> 2026+i); // 2026–2050
@@ -1203,6 +1210,54 @@ function computeStrategy(prefs) {
     return a.method.price - b.method.price;
   });
 
+  // ── CDR Economics ─────────────────────────────────────────────────────────
+  // Archetype classification by emissions structure
+  const s1 = prefs.emissionsBreakdown?.scope1 || 0;
+  const s2 = prefs.emissionsBreakdown?.scope2 || 0;
+  const s3 = prefs.emissionsBreakdown?.scope3 || 0;
+  const redPct = (prefs.reductionPct ?? 90) / 100;
+  const archetype =
+    (s1 + s2 < 500_000 && redPct >= 0.90)            ? 'SMALL_RESIDUAL'  :
+    (annual > 0 && s3 / annual > 0.60 && annual > 5_000_000) ? 'LARGE_SCOPE3'    :
+    (annual > 0 && s1 / annual > 0.80)                ? 'HARD_TO_ABATE'   :
+    null;
+
+  // Ongoing Emissions Retirement (OER) — SBTi V2 thresholds
+  const oerMin  = annual * 0.01;   // "Recognized" — 1% of ongoing
+  const oerLead = annual * 0.05;   // "Leadership"  — 5% of ongoing
+
+  // Durability ramp: Swiss Re model — 10 ppts/yr from 2021, 100% at net-zero
+  const durablePct = (y) => Math.min(100, Math.max(0, (y - 2021) * 10));
+
+  // Blended price from user-configurable mix (percentages must sum to 100)
+  const mn  = prefs.mixNature   ?? 40;
+  const mb  = prefs.mixBiochar  ?? 30;
+  const mbc = prefs.mixBeccs    ?? 20;
+  const md  = prefs.mixDac      ?? 10;
+  const blendedPriceBase = (mn * 30 + mb * 180 + mbc * 175 + md * 500) / 100;
+
+  // Contract structure discount
+  const CONTRACT_DISCOUNT = { bilateral: 0.65, coalition: 0.80, spot: 1.0 };
+  const contractDiscount = CONTRACT_DISCOUNT[prefs.contractStructure] || 1.0;
+
+  // Effective blended price after contract discount
+  const blendedPrice = blendedPriceBase * contractDiscount;
+
+  // Annual CDR budget (OER min pathway)
+  const annualCDRBudget = oerMin * blendedPrice;
+
+  // Residual neutralisation at net-zero year
+  const residualNeutral = baselineEmissions * (1 - redPct);
+  const neutralizationCost = residualNeutral * blendedPrice;
+
+  // Total programme spend: OER spend through horizon + one-off neutralisation
+  const totalCDRSpend = (annualCDRBudget * stratN) + neutralizationCost;
+
+  // ICP gap — does internal carbon price self-finance the OER?
+  const icp = prefs.internalCarbonPrice;
+  const icpRevenue = icp != null ? annual * icp : null;
+  const icpGap     = icpRevenue != null ? annualCDRBudget - icpRevenue : null;
+
   return {
     yearly, tenYr, tenYrTotalT, tenYrCost,
     spTotal, nbsTotal, cdrTotal, stratN,
@@ -1210,6 +1265,11 @@ function computeStrategy(prefs) {
     mix, priceCat, ramp, residualFrac,
     annualResidual, baselineEmissions, ongoingEmissions,
     sbtiCDRPct: prefs.sbtiAligned ? sbtiCDRPct : null,
+    // CDR economics
+    archetype, oerMin, oerLead, durablePct,
+    blendedPrice, blendedPriceBase, contractDiscount,
+    annualCDRBudget, residualNeutral, neutralizationCost, totalCDRSpend,
+    icpGap, icpRevenue,
   };
 }
 
@@ -4520,6 +4580,121 @@ function StepBudget({ prefs, setPrefs }) {
           </div>
         </Card>
       </div>
+
+      {/* CDR Economics inputs */}
+      <div style={{marginTop: 24, display:'grid', gridTemplateColumns:'1fr 1fr', gap: 24}}>
+        <Card padding={28}>
+          <Eyebrow color="var(--color-umber)" style={{marginBottom: 16}}>CDR mix & contract</Eyebrow>
+          <div style={{marginBottom: 20}}>
+            <div style={{fontFamily:'var(--font-mono)', fontSize: 10, letterSpacing:'.1em', textTransform:'uppercase', color:'var(--color-umber)', marginBottom: 10}}>Contract structure</div>
+            <div style={{display:'flex', gap: 4}}>
+              {[
+                {k:'bilateral', l:'Bilateral', desc:'35% discount — long-term offtake'},
+                {k:'coalition', l:'Coalition', desc:'20% discount — group procurement'},
+                {k:'spot',      l:'Spot',      desc:'Market rate — flexible purchasing'},
+              ].map(({k, l, desc}) => {
+                const on = (prefs.contractStructure || 'spot') === k;
+                return (
+                  <button key={k} onClick={() => setPrefs({...prefs, contractStructure: k})}
+                    style={{
+                      flex: 1, padding:'10px 8px', border: on ? '1.5px solid var(--color-dark-carbon)' : '1px solid var(--color-border)',
+                      borderRadius: 6, cursor:'pointer', textAlign:'left', transition:'all .15s',
+                      background: on ? 'var(--color-air)' : '#fff',
+                    }}>
+                    <div style={{fontFamily:'var(--font-mono)', fontSize: 11, fontWeight: on ? 600 : 400, marginBottom: 3}}>{l}</div>
+                    <div style={{fontSize: 10, color:'var(--color-earth)', lineHeight: 1.3}}>{desc}</div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div>
+            <div style={{fontFamily:'var(--font-mono)', fontSize: 10, letterSpacing:'.1em', textTransform:'uppercase', color:'var(--color-umber)', marginBottom: 10}}>CDR method mix (%)</div>
+            <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap: 10}}>
+              {[
+                {key:'mixNature',  label:'Nature-based', price:'$30/t', color:'var(--cat-nbs)'},
+                {key:'mixBiochar', label:'Biochar',      price:'$180/t', color:'var(--cat-cdr)'},
+                {key:'mixBeccs',   label:'BECCS',        price:'$175/t', color:'var(--color-umber)'},
+                {key:'mixDac',     label:'DAC',          price:'$500/t', color:'var(--color-dark-carbon)'},
+              ].map(({key, label, price, color}) => (
+                <div key={key}>
+                  <div style={{display:'flex', justifyContent:'space-between', marginBottom: 4}}>
+                    <span style={{fontSize: 11, fontFamily:'var(--font-mono)'}}>{label}</span>
+                    <span style={{fontSize: 10, color:'var(--color-earth)', fontFamily:'var(--font-mono)'}}>{price}</span>
+                  </div>
+                  <div style={{display:'flex', alignItems:'center', gap: 8}}>
+                    <input type="range" min={0} max={100} step={5}
+                      value={prefs[key] ?? DEFAULT_PREFS[key]}
+                      onChange={e => setPrefs({...prefs, [key]: +e.target.value})}
+                      style={{...slider, accentColor: color, flex: 1}}/>
+                    <span style={{fontFamily:'var(--font-mono)', fontSize: 11, fontWeight: 600, minWidth: 28, textAlign:'right'}}>
+                      {prefs[key] ?? DEFAULT_PREFS[key]}%
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div style={{fontSize: 11, color: (prefs.mixNature+prefs.mixBiochar+prefs.mixBeccs+prefs.mixDac) === 100 ? 'var(--color-earth)' : '#c0392b', marginTop: 8, fontFamily:'var(--font-mono)'}}>
+              Total: {(prefs.mixNature??40)+(prefs.mixBiochar??30)+(prefs.mixBeccs??20)+(prefs.mixDac??10)}% {((prefs.mixNature??40)+(prefs.mixBiochar??30)+(prefs.mixBeccs??20)+(prefs.mixDac??10)) === 100 ? '✓' : '— must sum to 100'}
+            </div>
+          </div>
+        </Card>
+
+        <Card padding={28}>
+          <Eyebrow color="var(--color-umber)" style={{marginBottom: 16}}>Internal carbon price</Eyebrow>
+          <div style={{marginBottom: 20}}>
+            <div style={{fontFamily:'var(--font-mono)', fontSize: 10, letterSpacing:'.1em', textTransform:'uppercase', color:'var(--color-umber)', marginBottom: 8}}>ICP (USD / tCO₂e)</div>
+            <Input
+              value={prefs.internalCarbonPrice !== null && prefs.internalCarbonPrice !== undefined ? prefs.internalCarbonPrice : ''}
+              placeholder="e.g. 50"
+              onChange={e => {
+                const v = e.target.value === '' ? null : parseFloat(e.target.value);
+                setPrefs({...prefs, internalCarbonPrice: isNaN(v) ? null : v});
+              }}
+            />
+            <div style={{fontSize: 11, color:'var(--color-earth)', marginTop: 6, fontFamily:'var(--font-mono)', lineHeight: 1.4}}>
+              If your org charges an internal carbon tax, this estimates how much of your CDR spend is self-funded.
+            </div>
+          </div>
+
+          {s.annualCDRBudget > 0 && (
+            <div style={{background:'var(--color-air)', borderRadius: 8, padding: 16, marginTop: 12}}>
+              <div style={{fontFamily:'var(--font-mono)', fontSize: 10, letterSpacing:'.1em', textTransform:'uppercase', color:'var(--color-umber)', marginBottom: 12}}>CDR economics preview</div>
+              <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap: 12}}>
+                <div>
+                  <div style={{fontSize: 10, color:'var(--color-earth)', fontFamily:'var(--font-mono)', marginBottom: 2}}>Blended price</div>
+                  <div style={{fontSize: 18, fontWeight: 600}}>${Math.round(s.blendedPrice)}<span style={{fontSize: 11, fontWeight: 400, color:'var(--color-earth)'}}>/t</span></div>
+                  {s.contractDiscount < 1 && <div style={{fontSize: 10, color:'var(--color-earth)', fontFamily:'var(--font-mono)'}}>after {Math.round((1-s.contractDiscount)*100)}% contract disc.</div>}
+                </div>
+                <div>
+                  <div style={{fontSize: 10, color:'var(--color-earth)', fontFamily:'var(--font-mono)', marginBottom: 2}}>Annual OER budget</div>
+                  <div style={{fontSize: 18, fontWeight: 600}}>{fmt.money(s.annualCDRBudget)}</div>
+                  <div style={{fontSize: 10, color:'var(--color-earth)', fontFamily:'var(--font-mono)'}}>1% ongoing × blended price</div>
+                </div>
+                <div>
+                  <div style={{fontSize: 10, color:'var(--color-earth)', fontFamily:'var(--font-mono)', marginBottom: 2}}>Neutralisation cost</div>
+                  <div style={{fontSize: 18, fontWeight: 600}}>{fmt.money(s.neutralizationCost)}</div>
+                  <div style={{fontSize: 10, color:'var(--color-earth)', fontFamily:'var(--font-mono)'}}>residual × blended price</div>
+                </div>
+                <div>
+                  <div style={{fontSize: 10, color:'var(--color-earth)', fontFamily:'var(--font-mono)', marginBottom: 2}}>Total CDR spend</div>
+                  <div style={{fontSize: 18, fontWeight: 600}}>{fmt.money(s.totalCDRSpend)}</div>
+                  <div style={{fontSize: 10, color:'var(--color-earth)', fontFamily:'var(--font-mono)'}}>{s.stratN}-yr OER + neutralisation</div>
+                </div>
+              </div>
+              {s.icpGap !== null && (
+                <div style={{marginTop: 12, paddingTop: 12, borderTop:'1px solid var(--color-border)'}}>
+                  <div style={{fontSize: 11, fontFamily:'var(--font-mono)', color: s.icpGap <= 0 ? 'var(--color-dark-moss)' : 'var(--color-umber)'}}>
+                    ICP gap: <strong>{s.icpGap <= 0 ? '✓ fully self-funded' : fmt.money(s.icpGap) + '/yr shortfall'}</strong>
+                    {s.icpGap > 0 && <span style={{color:'var(--color-earth)'}}> · ICP revenue {fmt.money(s.icpRevenue)}/yr covers {Math.round(s.icpRevenue/s.annualCDRBudget*100)}%</span>}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </Card>
+      </div>
     </div>
   );
 }
@@ -6307,12 +6482,126 @@ function StrategyView({ prefs, strat }) {
         <PriceLine data={strat.yearly}/>
       </Card>
 
+      {/* CDR Economics card */}
+      <CDREconomicsCard strat={strat} prefs={prefs}/>
+
       {/* CUR8 Portfolio Design Principles panel */}
       <CUR8PrinciplesPanel strat={strat} prefs={prefs}/>
 
       {/* Country & Sector Context from EEA GHG data */}
       {prefs._eeaContext && <EEAContextCards prefs={prefs}/>}
     </div>
+  );
+}
+
+// ---- CDR Economics card -----------------------------------
+function CDREconomicsCard({ strat, prefs }) {
+  const ARCHETYPE_LABEL = {
+    SMALL_RESIDUAL: 'Small residual emitter',
+    LARGE_SCOPE3:   'Scope 3-dominated',
+    HARD_TO_ABATE:  'Hard-to-abate Scope 1',
+  };
+  const ARCHETYPE_COLOR = {
+    SMALL_RESIDUAL: 'var(--score-4)',
+    LARGE_SCOPE3:   'var(--score-3)',
+    HARD_TO_ABATE:  'var(--score-2)',
+  };
+  const CONTRACT_LABEL = { bilateral:'Bilateral offtake', coalition:'Coalition procurement', spot:'Spot market' };
+
+  const {
+    archetype, oerMin, oerLead, blendedPrice, blendedPriceBase,
+    contractDiscount, annualCDRBudget, residualNeutral,
+    neutralizationCost, totalCDRSpend, icpGap, icpRevenue,
+  } = strat;
+
+  return (
+    <Card padding={28} style={{marginBottom: 20}}>
+      <div style={{display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom: 24, gap: 24}}>
+        <div>
+          <Eyebrow style={{marginBottom: 8}}>CDR economics</Eyebrow>
+          <div style={{fontSize: 18, fontWeight: 500}}>Retirement cost model</div>
+          <div style={{fontSize: 13, color:'var(--color-earth)', marginTop: 2}}>
+            Blended purchase price, OER volumes and programme cost across the strategy horizon.
+          </div>
+        </div>
+        <div style={{display:'flex', gap: 8, flexShrink: 0}}>
+          {archetype && (
+            <div style={{
+              padding:'4px 10px', borderRadius: 4, fontSize: 11, fontFamily:'var(--font-mono)',
+              letterSpacing:'.08em', textTransform:'uppercase', fontWeight: 600,
+              background: ARCHETYPE_COLOR[archetype], color:'var(--color-dark-carbon)'
+            }}>
+              {ARCHETYPE_LABEL[archetype]}
+            </div>
+          )}
+          <div style={{
+            padding:'4px 10px', borderRadius: 4, fontSize: 11, fontFamily:'var(--font-mono)',
+            letterSpacing:'.08em', background:'var(--color-air)', border:'1px solid var(--color-border)'
+          }}>
+            {CONTRACT_LABEL[prefs.contractStructure || 'spot']}
+            {contractDiscount < 1 && <span style={{color:'var(--color-umber)'}}> · {Math.round((1-contractDiscount)*100)}% off</span>}
+          </div>
+        </div>
+      </div>
+
+      <div style={{display:'grid', gridTemplateColumns:'repeat(3, 1fr)', gap: 0, border:'1px solid var(--color-border)', borderRadius: 8, overflow:'hidden', marginBottom: 20}}>
+        {[
+          { label:'Blended price', val:`$${Math.round(blendedPrice)}/t`, sub: blendedPriceBase !== blendedPrice ? `base $${Math.round(blendedPriceBase)}/t · ${Math.round((1-contractDiscount)*100)}% contract disc.` : 'NBS 40% · Biochar 30% · BECCS 20% · DAC 10%' },
+          { label:'OER min (1% ongoing)', val:`${fmt.k(Math.round(oerMin))} tCO₂e/yr`, sub:`Leadership 5%: ${fmt.k(Math.round(oerLead))} tCO₂e/yr` },
+          { label:'Annual OER budget', val:fmt.money(annualCDRBudget), sub:`${fmt.k(Math.round(oerMin))} t × $${Math.round(blendedPrice)}/t` },
+          { label:'Residual to neutralise', val:`${fmt.k(Math.round(residualNeutral))} tCO₂e`, sub:`${Math.round((1-(prefs.reductionPct??90)/100)*100)}% of baseline at net-zero` },
+          { label:'Neutralisation cost', val:fmt.money(neutralizationCost), sub:`one-off at ${prefs.targetYear}` },
+          { label:`${strat.stratN}-yr total CDR spend`, val:fmt.money(totalCDRSpend), sub:`OER ${fmt.money(annualCDRBudget * strat.stratN)} + neutralisation ${fmt.money(neutralizationCost)}` },
+        ].map((item, i) => (
+          <div key={i} style={{
+            padding:'16px 20px',
+            borderRight: (i+1)%3 !== 0 ? '1px solid var(--color-border)' : 'none',
+            borderBottom: i < 3 ? '1px solid var(--color-border)' : 'none',
+            background: '#fff',
+          }}>
+            <div style={{fontFamily:'var(--font-mono)', fontSize: 10, letterSpacing:'.1em', textTransform:'uppercase', color:'var(--color-umber)', marginBottom: 6}}>{item.label}</div>
+            <div style={{fontSize: 20, fontWeight: 600, letterSpacing:'-0.01em', marginBottom: 3}}>{item.val}</div>
+            <div style={{fontSize: 11, color:'var(--color-earth)', fontFamily:'var(--font-mono)'}}>{item.sub}</div>
+          </div>
+        ))}
+      </div>
+
+      {icpGap !== null && (
+        <div style={{
+          padding:'12px 16px', borderRadius: 6,
+          background: icpGap <= 0 ? '#e8f8f0' : '#fff8e8',
+          border: `1px solid ${icpGap <= 0 ? '#a8dfc0' : '#f0d080'}`,
+          display:'flex', alignItems:'center', gap: 12,
+        }}>
+          <span style={{fontSize: 18}}>{icpGap <= 0 ? '✅' : '⚠️'}</span>
+          <div>
+            <div style={{fontSize: 13, fontWeight: 600, marginBottom: 2}}>
+              ICP analysis: {icpGap <= 0 ? 'OER fully self-funded by internal carbon price' : `${fmt.money(icpGap)}/yr funding gap`}
+            </div>
+            <div style={{fontSize: 11, color:'var(--color-earth)', fontFamily:'var(--font-mono)'}}>
+              ICP revenue: {fmt.money(icpRevenue)}/yr at ${prefs.internalCarbonPrice}/t × {fmt.k(prefs.annualEmissions)} tCO₂e
+              {icpGap > 0 && ` · covers ${Math.round(icpRevenue/annualCDRBudget*100)}% of OER budget`}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Durability ramp visualisation */}
+      <div style={{marginTop: 20}}>
+        <div style={{fontFamily:'var(--font-mono)', fontSize: 10, letterSpacing:'.1em', textTransform:'uppercase', color:'var(--color-umber)', marginBottom: 10}}>Durability ramp (Swiss Re model) — % permanent CDR required</div>
+        <div style={{display:'flex', gap: 2, alignItems:'flex-end', height: 48}}>
+          {[2026,2028,2030,2032,2034,2036,2038,2040,2042,2045,2050].map(y => {
+            const pct = strat.durablePct(y);
+            return (
+              <div key={y} style={{flex: 1, display:'flex', flexDirection:'column', alignItems:'center', gap: 2}}>
+                <div style={{width:'100%', background:`color-mix(in srgb, var(--cat-cdr) ${pct}%, var(--color-air) ${100-pct}%)`, height: Math.max(4, pct * 0.44), borderRadius: 2, minHeight: 4}}/>
+                <div style={{fontFamily:'var(--font-mono)', fontSize: 9, color:'var(--color-earth)', whiteSpace:'nowrap'}}>{y}</div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </Card>
   );
 }
 
