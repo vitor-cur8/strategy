@@ -2514,6 +2514,48 @@ COMPANY_DB.push(
     ],
     peers: ['Roche','Pfizer','Novartis','Johnson & Johnson','GSK','Sanofi'],
     industryTopics: ['pharmaceutical emissions','F-gas pMDI inhalers','NGP transition','scope 3 supply chain','life sciences decarbonisation','Ambition Zero Carbon'],
+  },
+  {
+    match: ['swiss re','swissre','swiss-re'],
+    orgName: 'Swiss Re Group', industry: 'Reinsurance & Financial Services',
+    hq: 'Zürich, Switzerland', employees: 15360, revenue: 'USD 45.6B (FY2024)', founded: 1863,
+    // Source: Swiss Re Group Sustainability Report 2024 (published March 2025)
+    // Scope 1 (2024): 1,728 tCO₂e | Scope 2 market-based (2024): 84 tCO₂e | Scope 2 location-based: 7,522 tCO₂e
+    // Financed emissions (investment portfolio): ~10,100,000 tCO₂e | Insurance-associated: ~1,600,000 tCO₂e
+    // Baseline year: 2018 | Scope 1 (2018): 3,356 tCO₂e | Scope 2 market-based (2018): 1,359 tCO₂e
+    // Operational net-zero target: 2030 | Group-wide net-zero: 2050
+    // SBTi: withdrew from validation in Sep 2025 (targets remain, self-described as science-based)
+    annualEmissions: 9720,  // S1 (1,728) + S2 market-based (84) + operational Scope 3 (~7,908 est. from travel + other)
+    emissionsBreakdown: { scope1: 1728, scope2: 84, scope3: 7908 },
+    baselineEmissions: 14000, // 2018: S1 (3,356) + S2 market-based (1,359) + est. Scope 3 operational
+    baselineYear: 2018,
+    targetYear: 2030, sbtiAligned: false, includeSuperpollutants: false,
+    pricePerTonne: 134, // Matches Swiss Re's own internal Carbon Steering Levy (2024: USD 134/t, rising to USD 200 by 2030)
+    totalBudget: 5000000,
+    goals: [
+      'Net zero across own operations by 2030 (CO2NetZero Programme)',
+      'Net zero across operations, investments and underwriting by 2050',
+      '53% absolute reduction in Scope 1 GHG emissions by 2030 vs 2018 (49% achieved by 2024)',
+      '60% reduction in business air travel emissions by 2026 vs 2018 (63% achieved by 2024)',
+      '100% renewable electricity — maintained since commitment',
+      '50% of carbon certificates to be removal-based by 2025 (43% achieved by 2024)',
+      '100% of carbon certificates to be removal-based by 2030',
+      'Internal Carbon Steering Levy rising to USD 200/tCO₂e by 2030',
+    ],
+    team: [
+      { name: 'Kera McDonald', role: 'Group Chief Underwriting Officer (chairs Sustainability Committee)', email: 'sustainability@swissre.com' },
+      { name: 'Patrick Raaflaub', role: 'Group Chief Risk Officer', email: 'praaflaub@swissre.com' },
+      { name: 'Lina Terei', role: 'Head of Responsible Investing & Initiatives, Group Asset Management', email: 'lterei@swissre.com' },
+    ],
+    requirements: [
+      'Carbon removal certificates only — transitioning fully away from avoidance by 2030',
+      'Biochar (BCR) and direct air capture (DAC) preferred removal types',
+      'Independent third-party MRV verification required (currently via Carbonfuture MRV+)',
+      'Long-term offtake agreements preferred — 7+ year bilateral contracts',
+      'Financed and insurance-associated emissions (~11.7M tCO₂e) considered separately from operational scope',
+    ],
+    peers: ['Munich Re', 'Hannover Re', 'Zurich Insurance', 'SCOR', 'Conduit Re'],
+    industryTopics: ['reinsurance','financed emissions','insurance-associated emissions','climate risk modelling','catastrophe bonds','NZIA','carbon levy','durability ramp','Swiss Re CDR model'],
   }
 );
 
