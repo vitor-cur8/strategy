@@ -1916,6 +1916,7 @@ function enrichPrefs(prefs) {
       includeSuperpollutants: co.includeSuperpollutants,
       pricePerTonne: co.pricePerTonne,
       totalBudget: co.totalBudget,
+      budgetMode: co.budgetMode ?? prefs.budgetMode,
       goals: co.goals,
       team: co.team,
       requirements: co.requirements,
@@ -2493,41 +2494,56 @@ COMPANY_DB.push(
     match: ['astrazeneca','astra zeneca','astra-zeneca','az pharma'],
     orgName: 'AstraZeneca PLC', industry: 'Pharmaceuticals & Life Sciences',
     hq: 'Cambridge, United Kingdom', employees: 89900, revenue: 'USD 58.7B (FY2025)', founded: 1999,
-    // Source: AstraZeneca Annual Report & Form 20-F 2025
+    // Source: AstraZeneca Annual Report & Form 20-F 2025 + AZ dCDR RFP (Oct 2025)
     // Scope 1+2 (market-based) 2025: 73,903 tCO₂e | Scope 3 2025: 6,197,690 tCO₂e
     // S1+2 baseline year: 2015 (620,818 tCO₂e) | S3 baseline year: 2019 (5,025,169 tCO₂e)
+    // RFP tender specifics: 17,300 tCO₂e/yr durable CDR | $3.75M annual budget (~$217/t implied)
+    // 10-year programme (Apr 2026 start), break clauses at years 2 and 5
+    // Portfolio: biochar-first, 3–6 developer contracts, scaling to BECCS/DAC by ~2035
     annualEmissions: 6271593, // 2025: S1+S2 market-based (73,903) + S3 (6,197,690)
     emissionsBreakdown: { scope1: 62587, scope2: 11316, scope3: 6197690 },
     // Combined baseline: 2015 S1+2 (620,818) + 2019 S3 (5,025,169) = 5,645,987
     baselineEmissions: 5645987,
     baselineYear: 2019,
     targetYear: 2045, sbtiAligned: true, includeSuperpollutants: false,
-    pricePerTonne: 165, totalBudget: null,
+    // pricePerTonne derived from RFP: $3.75M ÷ 17,300 tCO₂e = ~$217/t
+    pricePerTonne: 217,
+    // totalBudget: 10-year programme at $3.75M/yr
+    totalBudget: 37500000,
+    budgetMode: 'total',
     goals: [
-      'Net zero across full value chain by 2045 (SBTi-verified)',
-      '98% absolute reduction in Scope 1 & 2 GHG emissions by 2026 vs 2015 baseline (88.1% achieved)',
+      'Net zero across full value chain by 2045 (SBTi-verified, Ambition Zero Carbon)',
+      '98% absolute reduction in Scope 1 & 2 GHG emissions by 2026 vs 2015 baseline',
       '50% absolute reduction in Scope 3 GHG emissions by 2030 vs 2019 baseline',
       '90% absolute reduction in Scope 3 GHG emissions by 2045 vs 2019 baseline',
-      'Carbon negative across value chain by 2030 via nature-based solutions (Ambition Zero Carbon)',
-      '100% electric commercial fleet — 80%+ transitioned by end of 2025',
+      'Balance residual Scope 1 & 2 emissions from 2026 onward with durable CDR removals',
+      'Purchase 17,300 tCO₂e/yr of durable CDR credits from 2027 (Jan retirement aligned to annual report)',
+      'AZ Forest: plant 200M trees globally by 2030 — NBS credit generation from 2026',
       'Transition full pMDI inhaler portfolio to near-zero GWP Next Generation Propellant (NGP)',
-      'Engage suppliers covering majority of spend to set SBTi-validated targets by end of 2025',
     ],
     team: [
       { name: 'Pascal Soriot', role: 'CEO', email: 'ceo@astrazeneca.com' },
       { name: 'Pam Cheng', role: 'EVP Global Operations, IT & Chief Sustainability Officer', email: 'sustainability@astrazeneca.com' },
-      { name: 'Aradhana Sarin', role: 'CFO', email: 'cfo@astrazeneca.com' },
+      { name: 'Dan Rogers', role: 'Director, Climate Strategy, Global Sustainability', email: 'daniel.rogers@astrazeneca.com' },
+      { name: 'Oliwier Klos', role: 'Associate Procurement Manager (RFP primary contact)', email: 'oliwier.klos@astrazeneca.com' },
+      { name: 'Håkan Sjöberg', role: 'Director Global Infrastructure Procurement (RFP secondary contact)', email: 'hakan.sjoberg@astrazeneca.com' },
     ],
     requirements: [
-      'SBTi-verified and science-aligned credits only',
-      'Nature-based solutions for near-term carbon-negative 2030 commitment',
-      'CDR mix required for long-term net-zero neutralisation by 2045',
-      'Permanent, high-durability removals preferred for residual coverage',
-      'CDP A-list level disclosure and annual third-party verification required',
-      'No REDD+ or avoided-deforestation-only credits',
+      // From dCDR RFP (Oct 2025) — Instructions to Tenderers
+      'Durable CDR only: 17,300 tCO₂e/yr from 2027 retirements — no avoidance, no REDD+',
+      'Portfolio weighted towards biochar initially, increasing permanence over 10 years (BECCS → DAC)',
+      '3–6 developer contracts per portfolio; multi-year offtakes with delivery guarantees',
+      'Registries: Verra VCS, Gold Standard, Puro.earth, Isometric, ACCU — managed on AZ\'s behalf',
+      'CCP Core Carbon Principles alignment required; AZ Quality Matrix scoring applied to all developers',
+      'High-priority geographies: UK, US, Sweden, China, Ireland, Canada, Australia, France, Brazil',
+      'Secondary geographies: India, Malaysia, Spain, Mexico, Costa Rica, Portugal, Poland, Japan, South Korea',
+      'Projects linking to AZ value chain preferred (e.g. biochar from pharmaceutical feedstock waste)',
+      'Annual book-value analysis of NBS credits vs asset register (financial audit requirement)',
+      'Wholesale carbon credit pricing — management fees separate and flat-rate',
+      'First retirements Jan 2027 (2025/2026 vintages); annual retirement cycle aligned to AZ Annual Report',
     ],
     peers: ['Roche','Pfizer','Novartis','Johnson & Johnson','GSK','Sanofi'],
-    industryTopics: ['pharmaceutical emissions','F-gas pMDI inhalers','NGP transition','scope 3 supply chain','life sciences decarbonisation','Ambition Zero Carbon'],
+    industryTopics: ['pharmaceutical emissions','Ambition Zero Carbon','durable CDR','biochar','BECCS','AZ Forest','SBTi net-zero 2045','NGP inhalers','carbon certificate management','Scope 3 supply chain'],
   },
   {
     match: ['swiss re','swissre','swiss-re'],
