@@ -7829,7 +7829,6 @@ function ProjectRow({ p, cols, showNote, onClick }) {
           {corsiaEligible && <CorsiaTag/>}
           {p._multiYearRec && <MultiYearTag/>}
         </div>
-        {p._pillars && <PillarBars pillars={p._pillars}/>}
         {showNote && p.note && <div style={{fontSize:11, color:'var(--color-earth)', lineHeight:1.5, marginTop:3}}>{p.note}</div>}
       </div>
       <div style={{color:'var(--color-earth)', fontSize:12}}>{p.s || '—'}</div>
