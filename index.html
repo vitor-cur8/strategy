@@ -1078,6 +1078,7 @@ function computeStrategy(prefs) {
   const activeMethodKeys = Object.keys(METHODS).filter(k => {
     const m = METHODS[k];
     if (!prefs.includeSuperpollutants && m.cat === 'SP') return false;
+    if (prefs._pureCDR && m.cat !== 'CDR') return false; // CDR-only programme — exclude SP and NBS
     return prefs.regions.includes(m.region);
   });
 
@@ -1222,7 +1223,8 @@ function computeStrategy(prefs) {
     const scale = sum > 0 ? targetSum / sum : 0;
     const scaled = annualVols.map(v => v * scale);
 
-    roadmap.push({ method: m, annualVols: scaled, total: scaled.reduce((s,v)=>s+v,0) });
+    const total = scaled.reduce((s,v)=>s+v,0);
+    if (total > 0) roadmap.push({ method: m, annualVols: scaled, total });
   });
   // sort roadmap by category order then first non-zero year
   const catOrder = { SP: 0, NBS: 1, CDR: 2 };
@@ -2600,6 +2602,54 @@ COMPANY_DB.push(
     ],
     peers: ['Munich Re', 'Hannover Re', 'Zurich Insurance', 'SCOR', 'Conduit Re'],
     industryTopics: ['reinsurance','financed emissions','insurance-associated emissions','climate risk modelling','catastrophe bonds','NZIA','carbon levy','durability ramp','Swiss Re CDR model'],
+  },
+  {
+    match: ['tokyo gas','tokyogas','tg group','tokyo gas & light','tg h2cm','h2cm'],
+    orgName: 'Tokyo Gas Co., Ltd.', industry: 'Energy & Utilities — Gas & LNG',
+    hq: 'Tokyo, Japan', employees: 15572, revenue: 'JPY 2,636.8B (~USD 17.4B, FY2024)', founded: 1885,
+    // Source: Tokyo Gas Integrated Report 2024, Tokyo Gas Sustainability Data 2024, CUR8 Attio/Granola/Gong records (Apr–May 2026)
+    // H2CM = Tokyo Gas's CDR investment arm (Hydrogen & Carbon Management) — distinct from corporate offsetting
+    // Scope 1 (FY2023): 12.9 Mt CO₂e | Scope 2 (FY2023): 36.1 kt CO₂e | Scope 3 (FY2023): 54.2 Mt CO₂e
+    // Corporate operational target: operational net-zero FY2030 (Scope 1+2)
+    // Group net-zero: 2050 | Not SBTi enrolled | GX-ETS mandatory from April 2026 (Japan)
+    annualEmissions: 12940000, // Scope 1 FY2023 (operational, tCO₂e)
+    emissionsBreakdown: { scope1: 12900000, scope2: 36100, scope3: 54200000 },
+    baselineEmissions: 12940000,
+    baselineYear: 2023,
+    targetYear: 2050,
+    sbtiAligned: false,
+    includeSuperpollutants: false,
+    regions: ['Japan','Southeast Asia','Americas','Europe'],
+    // H2CM CDR credit budget: ~USD 50M; price sensitivity USD 20–140/t (lower for NBS, higher for engineered CDR)
+    pricePerTonne: 75,   // blended mid-point for mixed portfolio (NBS ~$20–50, engineered CDR ~$80–140)
+    totalBudget: 50000000,
+    budgetMode: 'total',
+    goals: [
+      'Operational net-zero (Scope 1+2) by FY2030',
+      'Group-wide net-zero by 2050 (aligned to Japan GX Strategy)',
+      'GX-ETS compliance from April 2026 (mandatory Japan carbon market)',
+      'H2CM: USD 50M CDR portfolio — equity investments + credit offtake in engineered CDR developers',
+      'Preferred CDR methods: DAC, BECCS, BiCRS (biogenic CO₂ removal & storage), ERW',
+      'Japanese project engagement preferred — domestic co-benefits and government relations',
+      'Biochar and NBS considered as supplementary to engineered CDR core',
+      'Peer learning from Osaka Gas, Toho Gas, JERA CDR programmes',
+    ],
+    team: [
+      { name: 'Shinichi Sasayama', role: 'President & CEO', email: 'sustainability@tokyo-gas.co.jp' },
+      { name: 'H2CM Team', role: 'Hydrogen & Carbon Management — CDR investment & procurement', email: 'h2cm@tokyo-gas.co.jp' },
+    ],
+    requirements: [
+      'Engineered CDR priority: DAC, BECCS, BiCRS, ERW (enhanced rock weathering)',
+      'Price sensitivity: NBS USD 20–50/t; engineered CDR USD 80–140/t',
+      'USD 50M total CDR credit budget (H2CM programme)',
+      'Japanese project benefits preferred — domestic co-benefits, government relations, regional development',
+      'Equity investment model alongside credit offtake (strategic partnerships with CDR developers)',
+      'GX-ETS compliance — credits must be eligible under Japan mandatory carbon market from 2026',
+      'Long-term offtake agreements preferred for CDR developer partnerships',
+      'Biochar and NBS acceptable as supplementary to engineered CDR core portfolio',
+    ],
+    peers: ['Osaka Gas', 'Toho Gas', 'JERA', 'Chubu Electric', 'Eneos Holdings'],
+    industryTopics: ['GX-ETS','Japan carbon market','H2CM','CDR investment','DAC','BECCS','BiCRS','ERW','engineered CDR','LNG transition','gas decarbonisation','Japanese co-benefits'],
   }
 );
 
@@ -2754,6 +2804,26 @@ NEWS_TEMPLATES['Financial Services'] = [
 NEWS_TEMPLATES['Materials'] = NEWS_TEMPLATES['Industrials & Manufacturing'];
 NEWS_TEMPLATES['Infrastructure'] = NEWS_TEMPLATES['Industrials & Manufacturing'];
 NEWS_TEMPLATES['Power generation'] = NEWS_TEMPLATES['Energy & Utilities'];
+NEWS_TEMPLATES['Energy & Utilities — Gas & LNG'] = [
+  { kind:'policy',  source:'Japan MoE / GX League', title:'GX-ETS mandatory phase launches April 2026 — gas utilities face first compliance year',
+    body:'Japan\'s GX Emissions Trading System entered its mandatory phase in April 2026. Gas utilities including Tokyo Gas, Osaka Gas and Toho Gas must now surrender allowances for direct emissions. Price discovery underway — early trades at ¥3,200/t (~USD 21/t), consensus forecast ¥8,000+ by 2030.',
+    impact:'high', tags:['GX-ETS','Japan','Carbon market','Gas'] },
+  { kind:'market',  source:'BloombergNEF', title:'Engineered CDR enters gas sector procurement — DAC and BECCS dominate',
+    body:'Japanese gas majors are leading Asian procurement of engineered CDR. Tokyo Gas H2CM, Osaka Gas and JERA collectively committed USD 120M to DAC and BECCS offtake through 2025, citing durability requirements for post-abatement residuals and reputational positioning ahead of GX-ETS tightening.',
+    impact:'high', tags:['DAC','BECCS','CDR','Japan'] },
+  { kind:'insight', source:'CUR8 Research', title:'H2CM model: CDR as investment, not just compliance',
+    body:'Tokyo Gas\'s H2CM (Hydrogen & Carbon Management) unit structures CDR as equity investment + credit offtake — taking stakes in CDR developers alongside purchasing credits. This dual exposure hedges cost escalation while securing long-term supply. Osaka Gas and Toho Gas are watching H2CM closely as a template.',
+    impact:'high', tags:['H2CM','Strategy','CDR','Equity'] },
+  { kind:'policy',  source:'IEA', title:'LNG demand peaks 2028 — gas utilities must accelerate transition planning',
+    body:'IEA updated its LNG demand outlook, placing peak demand in 2028 with structural decline through the 2030s as Asian economies accelerate electrification. Gas utilities face stranded infrastructure risk — CDR and hydrogen investment provide a transition bridge and reputational hedge.',
+    impact:'high', tags:['LNG','IEA','Transition','Gas'] },
+  { kind:'market',  source:'Sylvera', title:'BiCRS and ERW gain Japan regulatory recognition for GX-ETS eligibility',
+    body:'Japan MoE confirmed that biogenic CO₂ removal & storage (BiCRS) and enhanced rock weathering (ERW) credits from approved methodologies are eligible for GX-ETS compliance from FY2027. Opens a new procurement channel for gas companies seeking domestic and international high-quality CDR.',
+    impact:'med', tags:['BiCRS','ERW','GX-ETS','Japan'] },
+  { kind:'insight', source:'CUR8 Research', title:'Scope 3 Category 11 dominates gas utility emissions — transition is the only answer',
+    body:'For gas distributors, combustion of sold gas (Scope 3 Cat 11) represents 85–95% of total emissions. Carbon credits cannot offset this at scale — grid electrification and hydrogen substitution are the necessary long-run pathway. CDR and VCM credits are most credible when scoped to operational residuals and transition-period bridging.',
+    impact:'high', tags:['Scope 3','Gas','Strategy'] },
+];
 NEWS_TEMPLATES['Hospitality'] = NEWS_TEMPLATES['Retail'];
 
 // ---- Peer profiles for business case -------------------------
