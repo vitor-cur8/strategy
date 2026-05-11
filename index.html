@@ -919,7 +919,11 @@ function computeStrategy(prefs) {
   // Companies mid-abatement have lower current emissions than baseline —
   // but the residual is still calculated from the original baseline.
   const baselineEmissions = prefs.baselineEmissions || prefs.annualEmissions;
-  const annualResidual = baselineEmissions * residualFrac; // tCO₂e/yr at net-zero
+  // residualOverride: directly set the annual removal volume (bypasses baseline × fraction calc).
+  // Used for CDR-specific programmes where the residual is already known (e.g. a tender).
+  const annualResidual = prefs.residualOverride != null
+    ? prefs.residualOverride
+    : baselineEmissions * residualFrac; // tCO₂e/yr at net-zero
 
   // Declining emissions model: current annual emissions fall linearly → annualResidual by targetYr.
   // This represents the company executing its abatement roadmap over the strategy period.
@@ -980,6 +984,9 @@ function computeStrategy(prefs) {
   // SP (superpollutants) phase out by 2031 for rapid near-term warming benefit.
   // NBS fills the gap between SP phase-out and CDR scale-up.
   const mix = (y) => {
+    // _pureCDR: skip NBS bridge entirely — all credits are durable CDR from year 1.
+    // Used for CDR-only programmes (e.g. AZ dCDR tender — S1+S2 residual only).
+    if (prefs._pureCDR) return { SP: 0, NBS: 0, CDR: 1.0 };
     if (prefs.sbtiAligned) {
       // SBTi: CDR anchored to milestone steps
       const cdr = sbtiCDRPct(y);
@@ -1917,6 +1924,8 @@ function enrichPrefs(prefs) {
       pricePerTonne: co.pricePerTonne,
       totalBudget: co.totalBudget,
       budgetMode: co.budgetMode ?? prefs.budgetMode,
+      residualOverride: co.residualOverride ?? null,
+      _pureCDR: co._pureCDR ?? false,
       goals: co.goals,
       team: co.team,
       requirements: co.requirements,
@@ -2500,12 +2509,17 @@ COMPANY_DB.push(
     // RFP tender specifics: 17,300 tCO₂e/yr durable CDR | $3.75M annual budget (~$217/t implied)
     // 10-year programme (Apr 2026 start), break clauses at years 2 and 5
     // Portfolio: biochar-first, 3–6 developer contracts, scaling to BECCS/DAC by ~2035
-    annualEmissions: 6271593, // 2025: S1+S2 market-based (73,903) + S3 (6,197,690)
-    emissionsBreakdown: { scope1: 62587, scope2: 11316, scope3: 6197690 },
-    // Combined baseline: 2015 S1+2 (620,818) + 2019 S3 (5,025,169) = 5,645,987
-    baselineEmissions: 5645987,
-    baselineYear: 2019,
-    targetYear: 2045, sbtiAligned: true, includeSuperpollutants: false,
+    // Full strategy emissions kept for reference:
+    annualEmissions: 17300,   // S1+S2 residual from 2026 (post 98% reduction): THIS is what needs CDR
+    emissionsBreakdown: { scope1: 15000, scope2: 2300, scope3: 0 }, // S1+S2 residual only
+    baselineEmissions: 17300, // residual is fixed — no further abatement assumed
+    baselineYear: 2026,
+    targetYear: 2035,         // 10-year programme horizon (Apr 2026 → ~2036)
+    sbtiAligned: false,       // CDR tender is a standalone programme, not the full SBTi net-zero plan
+    includeSuperpollutants: false,
+    // CDR engine overrides — force correct output for tender context
+    residualOverride: 17300,  // bypass baseline × fraction calc — use tender volume directly
+    _pureCDR: true,           // skip NBS bridge; 100% durable CDR from year 1
     // pricePerTonne derived from RFP: $3.75M ÷ 17,300 tCO₂e = ~$217/t
     pricePerTonne: 217,
     // totalBudget: 10-year programme at $3.75M/yr
