@@ -621,6 +621,10 @@ const DEFAULT_PREFS = {
   targetYear: 2040,
   sbtiAligned: false,
   includeSuperpollutants: true,
+  noFossilDevs: true,
+  registryMin: 'any',          // 'any' | 'gold-standard' | 'puro' | 'cdr-only'
+  policyAlignment: [],         // ['corsia','eu-ets','article6','gx-ets','sbti','vcmi']
+  minIssuedPct: 50,            // 0–100 — minimum % of portfolio already issued
   budgetMode: 'price',
   pricePerTonne: 150,
   totalBudget: 10_000_000,
@@ -3973,7 +3977,7 @@ window.CUR8_DATA = { METHODS, CATEGORIES, REGIONS, PROJECTS, REAL_PROJECTS, SP_P
 
 function Onboarding({ prefs, setPrefs, onDone }) {
   const [step, setStep] = React.useState(0);
-  const steps = ['Account', 'Goal', 'Preferences', 'Budget', 'Review'];
+  const steps = ['Account', 'Goal', 'Constraints', 'Preferences', 'Budget', 'Review'];
   const canContinue =
     (step === 0 && (prefs.orgName || '').trim().length > 0) ||
     (step === 1 && !!prefs.primaryGoal) ||
@@ -4017,9 +4021,10 @@ function Onboarding({ prefs, setPrefs, onDone }) {
       <div style={{flex:1, padding: '0 48px 48px', maxWidth: 1100, width:'100%', margin:'0 auto'}}>
         {step === 0 && <StepAccount prefs={prefs} setPrefs={setPrefs}/>}
         {step === 1 && <StepPrimaryGoal prefs={prefs} setPrefs={setPrefs}/>}
-        {step === 2 && <StepPreferences prefs={prefs} setPrefs={setPrefs}/>}
-        {step === 3 && <StepBudget prefs={prefs} setPrefs={setPrefs}/>}
-        {step === 4 && <StepReview prefs={prefs}/>}
+        {step === 2 && <StepConstraints prefs={prefs} setPrefs={setPrefs}/>}
+        {step === 3 && <StepPreferences prefs={prefs} setPrefs={setPrefs}/>}
+        {step === 4 && <StepBudget prefs={prefs} setPrefs={setPrefs}/>}
+        {step === 5 && <StepReview prefs={prefs}/>}
       </div>
 
       {/* nav */}
@@ -4582,8 +4587,6 @@ function StepPrimaryGoal({ prefs, setPrefs }) {
               </div>
               <div style={{marginTop:20}}>
                 <Toggle on={prefs.sbtiAligned} onChange={v => setPrefs({...prefs, sbtiAligned: v})} label="SBTi Net-Zero Standard 2.0" desc="Aggressive ramp to cover ≥90% of ongoing emissions by target year."/>
-                <div style={{height:10}}/>
-                <Toggle on={prefs.includeSuperpollutants} onChange={v => setPrefs({...prefs, includeSuperpollutants: v})} label="Include superpollutants" desc="Methane, ODS, HFCs — immediate avoided warming. Unlocks Phase 1 credits."/>
               </div>
             </div>
           </div>
@@ -4633,59 +4636,183 @@ function StepPrimaryGoal({ prefs, setPrefs }) {
   );
 }
 
-// --- STEP 2: PREFERENCES ---------------------------------
+// --- STEP 2: CONSTRAINTS ---------------------------------
+function StepConstraints({ prefs, setPrefs }) {
+  const REGISTRY_OPTIONS = [
+    { id:'any',           label:'Any standard' },
+    { id:'gold-standard', label:'Gold Standard only' },
+    { id:'puro',          label:'Puro.earth only' },
+    { id:'cdr-only',      label:'CDR-only registries' },
+  ];
+
+  const POLICY_OPTIONS = [
+    { id:'corsia',  label:'CORSIA',             sub:'ICAO aviation offset scheme',  icon:'✈️' },
+    { id:'eu-ets',  label:'EU ETS / Article 6', sub:'EU compliance + Paris ITMOs',  icon:'🇪🇺' },
+    { id:'gx-ets',  label:'GX-ETS',             sub:'Japan carbon market',          icon:'🇯🇵' },
+    { id:'sbti',    label:'SBTi-aligned',        sub:'Removal-only, no avoidance',   icon:'🎯' },
+    { id:'vcmi',    label:'VCMI Claims Code',    sub:'Voluntary market integrity',   icon:'📋' },
+  ];
+
+  const togglePolicy = (id) => {
+    const pol = prefs.policyAlignment || [];
+    const on = pol.includes(id);
+    setPrefs({ ...prefs, policyAlignment: on ? pol.filter(x => x !== id) : [...pol, id] });
+  };
+
+  const minIssued = prefs.minIssuedPct ?? 50;
+  const Tick = () => <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 5L4 7L8 3" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>;
+
+  return (
+    <div>
+      <Eyebrow style={{marginBottom:14}}>Portfolio constraints</Eyebrow>
+      <h1 style={{fontSize:36, fontWeight:500, letterSpacing:'-0.015em', marginBottom:12}}>
+        What are your hard limits?
+      </h1>
+      <p style={{fontSize:15, color:'var(--color-earth)', marginBottom:32, maxWidth:600}}>
+        Constraints filter the eligible project universe before any scoring happens. Projects that don't pass these are excluded entirely.
+      </p>
+
+      <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:20}}>
+
+        {/* Left column */}
+        <div style={{display:'flex', flexDirection:'column', gap:16}}>
+          <Card padding={24}>
+            <Eyebrow color="var(--color-umber)" style={{marginBottom:16}}>Eligibility</Eyebrow>
+            <Toggle on={!!prefs.includeSuperpollutants} onChange={v => setPrefs({...prefs, includeSuperpollutants: v})}
+              label="Include superpollutants"
+              desc="Methane, ODS, HFCs — immediate avoided warming. Unlocks Phase 1 credits at lower price points. Not counted as removal under SBTi 2.0."/>
+            <div style={{height:14}}/>
+            <Toggle on={prefs.noFossilDevs !== false} onChange={v => setPrefs({...prefs, noFossilDevs: v})}
+              label="Exclude fossil-fuel-linked developers"
+              desc="Filter out projects from developers with active fossil fuel operations or financial ties."/>
+          </Card>
+
+          <Card padding={24}>
+            <Eyebrow color="var(--color-umber)" style={{marginBottom:14}}>Minimum registry standard</Eyebrow>
+            <div style={{display:'flex', flexDirection:'column', gap:6}}>
+              {REGISTRY_OPTIONS.map(opt => {
+                const active = (prefs.registryMin || 'any') === opt.id;
+                return (
+                  <button key={opt.id} onClick={() => setPrefs({...prefs, registryMin: opt.id})}
+                    style={{ padding:'10px 16px', borderRadius:6, cursor:'pointer', textAlign:'left', transition:'all .15s',
+                      border: active ? '1.5px solid var(--color-dark-carbon)' : '1px solid var(--color-border)',
+                      background: active ? 'var(--color-dark-carbon)' : '#fff',
+                      color: active ? '#fff' : 'var(--color-dark-carbon)',
+                      fontFamily:'var(--font-mono)', fontSize:12, letterSpacing:'.03em' }}>
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+          </Card>
+        </div>
+
+        {/* Right column */}
+        <div style={{display:'flex', flexDirection:'column', gap:16}}>
+          <Card padding={24}>
+            <Eyebrow color="var(--color-umber)" style={{marginBottom:8}}>Policy alignment required</Eyebrow>
+            <p style={{fontSize:12, color:'var(--color-earth)', marginBottom:14, lineHeight:1.5}}>Credits must be eligible for these frameworks. Leave blank if no specific policy requirement.</p>
+            <div style={{display:'flex', flexDirection:'column', gap:7}}>
+              {POLICY_OPTIONS.map(p => {
+                const on = (prefs.policyAlignment || []).includes(p.id);
+                return (
+                  <div key={p.id} onClick={() => togglePolicy(p.id)}
+                    style={{ padding:'11px 14px', borderRadius:6, cursor:'pointer', transition:'all .15s', display:'flex', alignItems:'center', gap:12,
+                      border: on ? '1.5px solid var(--color-dark-carbon)' : '1px solid var(--color-border)',
+                      background: on ? 'var(--color-air)' : '#fff' }}>
+                    <div style={{fontSize:15, lineHeight:1, flexShrink:0}}>{p.icon}</div>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:13, fontWeight:500}}>{p.label}</div>
+                      <div style={{fontSize:11, color:'var(--color-earth)', marginTop:2}}>{p.sub}</div>
+                    </div>
+                    <div style={{ width:16, height:16, borderRadius:3, flexShrink:0,
+                      border: on ? 'none' : '1.5px solid var(--color-border)',
+                      background: on ? 'var(--color-dark-carbon)' : 'transparent',
+                      display:'flex', alignItems:'center', justifyContent:'center' }}>
+                      {on && <Tick/>}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </Card>
+
+          <Card padding={24}>
+            <Eyebrow color="var(--color-umber)" style={{marginBottom:8}}>Issued vs future delivery</Eyebrow>
+            <p style={{fontSize:12, color:'var(--color-earth)', marginBottom:18, lineHeight:1.5}}>
+              Minimum share of portfolio that must be already-issued, verified credits. The remainder can be forward offtake.
+            </p>
+            <div style={{display:'flex', alignItems:'baseline', gap:8, marginBottom:12}}>
+              <span style={{fontFamily:'var(--font-mono)', fontSize:32, fontWeight:500, lineHeight:1}}>{minIssued}%</span>
+              <span style={{fontSize:12, color:'var(--color-earth)'}}>already issued</span>
+            </div>
+            <input type="range" min="0" max="100" step="5" value={minIssued}
+              onChange={e => setPrefs({...prefs, minIssuedPct: +e.target.value})}
+              style={{width:'100%', accentColor:'var(--color-dark-carbon)', cursor:'pointer'}}/>
+            <div style={{display:'flex', justifyContent:'space-between', marginTop:7}}>
+              <span style={{fontFamily:'var(--font-mono)', fontSize:10, color:'var(--color-umber)', letterSpacing:'.06em'}}>0% · ALL OFFTAKE</span>
+              <span style={{fontFamily:'var(--font-mono)', fontSize:10, color:'var(--color-umber)', letterSpacing:'.06em'}}>100% · SPOT ONLY</span>
+            </div>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// --- STEP 3: PREFERENCES ---------------------------------
 function StepPreferences({ prefs, setPrefs }) {
   const PREFERENCES = [
-    { id:'quality',        label:'Defensible quality & expert DD', sub:'Anti-greenwashing · no science team needed', desc:"SBTi/standards alignment, no fossil-fuel value chain ties, registry-verifiable, PR-risk scanned — backed by expert per-project diligence so you don't need an internal science team.", icon:'🛡' },
-    { id:'diversification',label:'Portfolio diversification',       sub:'Managed delivery risk',             desc:'Methods, geographies, vintages and suppliers diversified with a delivery-risk wrapper. Avoid concentration in any single project or developer.', icon:'⚖️' },
-    { id:'co-benefits',    label:'Co-benefit / mission-fit story',sub:'Internal stakeholder sign-off',     desc:'SDGs, biodiversity, community and farmer impact, alignment to corporate purpose. Needed to win CFO and board approval.', icon:'🌱' },
-    { id:'geo-alignment',  label:'Geographic / value-chain fit',  sub:'Credits near your operations',      desc:'Credits from regions where your business or supply chain operates. Relevant for TNFD, supplier engagement and brand narrative.', icon:'📍' },
-    { id:'offtake',        label:'Long-term offtake structure',    sub:'Pay-on-delivery + protection',      desc:'Multi-year forward contracts with replacement clauses. Not pre-pay, not spot. Price hedge and supply certainty in a tightening market.', icon:'📄' },
-    { id:'price',          label:'Price within a quality bar',     sub:'Best value, not cheapest',          desc:"Almost no buyer leads with price — but it's always a constraint. Defensible quality at the lowest cost that passes the red line.", icon:'💰' },
+    { id:'diversification', label:'Portfolio diversification',  sub:'Managed delivery risk',         desc:'Methods, geographies, vintages and suppliers diversified with a delivery-risk wrapper. Avoid concentration in any single project or developer.', icon:'⚖️' },
+    { id:'co-benefits',     label:'Co-benefit / mission-fit',   sub:'Internal stakeholder sign-off', desc:'SDGs, biodiversity, community and farmer impact, alignment to corporate purpose. Needed to win CFO and board approval.', icon:'🌱' },
+    { id:'offtake',         label:'Long-term offtake',          sub:'Pay-on-delivery + price hedge', desc:'Multi-year forward contracts with replacement clauses. Not pre-pay, not spot. Price hedge and supply certainty in a tightening market.', icon:'📄' },
+    { id:'price',           label:'Price within a quality bar', sub:'Best value, not cheapest',      desc:"Almost no buyer leads with price — but it's always a constraint. Defensible quality at the lowest cost that passes the red line.", icon:'💰' },
   ];
 
   const toggle = (id) => {
-    const on = prefs.buyerPreferences.includes(id);
-    setPrefs({ ...prefs, buyerPreferences: on ? prefs.buyerPreferences.filter(x => x !== id) : [...prefs.buyerPreferences, id] });
+    const on = (prefs.buyerPreferences || []).includes(id);
+    setPrefs({ ...prefs, buyerPreferences: on ? prefs.buyerPreferences.filter(x => x !== id) : [...(prefs.buyerPreferences || []), id] });
   };
+
+  const Tick = () => <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 5L4 7L8 3" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>;
 
   return (
     <div>
       <Eyebrow style={{marginBottom:14}}>Portfolio preferences</Eyebrow>
       <h1 style={{fontSize:36, fontWeight:500, letterSpacing:'-0.015em', marginBottom:12}}>
-        What matters most to you?
+        What do you want to optimise for?
       </h1>
       <p style={{fontSize:15, color:'var(--color-earth)', marginBottom:32, maxWidth:600}}>
-        Select all that apply. These shape how CUR8 scores and filters projects for your portfolio.
+        Select all that apply. Unlike constraints, preferences don't exclude — they tune how CUR8 scores and ranks projects for your portfolio.
       </p>
-      <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10}}>
+      <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:12}}>
         {PREFERENCES.map(p => {
-          const on = prefs.buyerPreferences.includes(p.id);
+          const on = (prefs.buyerPreferences || []).includes(p.id);
           return (
             <div key={p.id} onClick={() => toggle(p.id)}
-              style={{ padding:'18px 20px', borderRadius:8, cursor:'pointer', transition:'all .15s', border: on ? '1.5px solid var(--color-dark-carbon)' : '1px solid var(--color-border)', background: on ? 'var(--color-air)' : '#fff' }}>
-              <div style={{display:'flex', alignItems:'flex-start', gap:12}}>
-                <div style={{fontSize:20, lineHeight:1, marginTop:1, flexShrink:0}}>{p.icon}</div>
+              style={{ padding:'22px 24px', borderRadius:8, cursor:'pointer', transition:'all .15s',
+                border: on ? '1.5px solid var(--color-dark-carbon)' : '1px solid var(--color-border)',
+                background: on ? 'var(--color-air)' : '#fff' }}>
+              <div style={{display:'flex', alignItems:'flex-start', gap:14}}>
+                <div style={{fontSize:22, lineHeight:1, marginTop:2, flexShrink:0}}>{p.icon}</div>
                 <div style={{flex:1}}>
-                  <div style={{display:'flex', alignItems:'center', gap:8, marginBottom:3}}>
-                    <span style={{fontSize:14, fontWeight:500}}>{p.label}</span>
+                  <div style={{display:'flex', alignItems:'center', gap:8, marginBottom:4}}>
+                    <span style={{fontSize:15, fontWeight:500}}>{p.label}</span>
                     <span style={{fontFamily:'var(--font-mono)', fontSize:9, letterSpacing:'.08em', textTransform:'uppercase', color:'var(--color-umber)', flexShrink:0}}>{p.sub}</span>
                   </div>
-                  <div style={{fontSize:12, color:'var(--color-earth)', lineHeight:1.5}}>{p.desc}</div>
+                  <div style={{fontSize:12, color:'var(--color-earth)', lineHeight:1.55}}>{p.desc}</div>
                 </div>
-                <div style={{ width:16, height:16, borderRadius:3, flexShrink:0, marginTop:2, border: on ? 'none' : '1.5px solid var(--color-border)', background: on ? 'var(--color-dark-carbon)' : 'transparent', display:'flex', alignItems:'center', justifyContent:'center' }}>
-                  {on && <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 5L4 7L8 3" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                <div style={{ width:16, height:16, borderRadius:3, flexShrink:0, marginTop:2,
+                  border: on ? 'none' : '1.5px solid var(--color-border)',
+                  background: on ? 'var(--color-dark-carbon)' : 'transparent',
+                  display:'flex', alignItems:'center', justifyContent:'center' }}>
+                  {on && <Tick/>}
                 </div>
               </div>
             </div>
           );
         })}
       </div>
-      {prefs.buyerPreferences.length === 0 && (
-        <div style={{marginTop:16, fontSize:13, color:'var(--color-umber)', fontFamily:'var(--font-mono)', letterSpacing:'.04em'}}>
-          No preferences selected — you can skip this step and configure later.
-        </div>
-      )}
     </div>
   );
 }
