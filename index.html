@@ -6655,21 +6655,6 @@ function CDREconomicsCard({ strat, prefs }) {
         </div>
       )}
 
-      {/* Durability ramp visualisation */}
-      <div style={{marginTop: 20}}>
-        <div style={{fontFamily:'var(--font-mono)', fontSize: 10, letterSpacing:'.1em', textTransform:'uppercase', color:'var(--color-umber)', marginBottom: 10}}>Durability ramp (Swiss Re model) — % permanent CDR required</div>
-        <div style={{display:'flex', gap: 2, alignItems:'flex-end', height: 48}}>
-          {[2026,2028,2030,2032,2034,2036,2038,2040,2042,2045,2050].map(y => {
-            const pct = strat.durablePct(y);
-            return (
-              <div key={y} style={{flex: 1, display:'flex', flexDirection:'column', alignItems:'center', gap: 2}}>
-                <div style={{width:'100%', background:`color-mix(in srgb, var(--cat-cdr) ${pct}%, var(--color-air) ${100-pct}%)`, height: Math.max(4, pct * 0.44), borderRadius: 2, minHeight: 4}}/>
-                <div style={{fontFamily:'var(--font-mono)', fontSize: 9, color:'var(--color-earth)', whiteSpace:'nowrap'}}>{y}</div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
     </Card>
   );
 }
