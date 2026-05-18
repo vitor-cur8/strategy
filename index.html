@@ -4636,14 +4636,12 @@ function StepPrimaryGoal({ prefs, setPrefs }) {
 // --- STEP 2: PREFERENCES ---------------------------------
 function StepPreferences({ prefs, setPrefs }) {
   const PREFERENCES = [
-    { id:'quality',        label:'Defensible quality',           sub:'Anti-greenwashing red line',         desc:'SBTi/standards alignment, no fossil-fuel value chain ties, registry-verifiable, PR-risk scanned. The most universal buyer requirement.', icon:'🛡' },
-    { id:'diversification',label:'Portfolio diversification',     sub:'Managed delivery risk',             desc:'Methods, geographies, vintages and suppliers diversified with a delivery-risk wrapper. Avoid concentration in any single project or developer.', icon:'⚖️' },
-    { id:'dd-outsourced',  label:'Scientific DD done for you',    sub:'No internal science team needed',   desc:"The intermediary's diligence model is itself the product. Buyers without capacity for per-project deep-dives need a trusted expert layer.", icon:'🔬' },
+    { id:'quality',        label:'Defensible quality & expert DD', sub:'Anti-greenwashing · no science team needed', desc:"SBTi/standards alignment, no fossil-fuel value chain ties, registry-verifiable, PR-risk scanned — backed by expert per-project diligence so you don't need an internal science team.", icon:'🛡' },
+    { id:'diversification',label:'Portfolio diversification',       sub:'Managed delivery risk',             desc:'Methods, geographies, vintages and suppliers diversified with a delivery-risk wrapper. Avoid concentration in any single project or developer.', icon:'⚖️' },
     { id:'co-benefits',    label:'Co-benefit / mission-fit story',sub:'Internal stakeholder sign-off',     desc:'SDGs, biodiversity, community and farmer impact, alignment to corporate purpose. Needed to win CFO and board approval.', icon:'🌱' },
     { id:'geo-alignment',  label:'Geographic / value-chain fit',  sub:'Credits near your operations',      desc:'Credits from regions where your business or supply chain operates. Relevant for TNFD, supplier engagement and brand narrative.', icon:'📍' },
     { id:'offtake',        label:'Long-term offtake structure',    sub:'Pay-on-delivery + protection',      desc:'Multi-year forward contracts with replacement clauses. Not pre-pay, not spot. Price hedge and supply certainty in a tightening market.', icon:'📄' },
     { id:'price',          label:'Price within a quality bar',     sub:'Best value, not cheapest',          desc:"Almost no buyer leads with price — but it's always a constraint. Defensible quality at the lowest cost that passes the red line.", icon:'💰' },
-    { id:'platform',       label:'Platform & portfolio visibility',sub:'Replace Excel + registry tabs',     desc:'A dashboard showing live portfolio status, credit retirements and reporting-ready data. Increasingly a baseline requirement.', icon:'📊' },
   ];
 
   const toggle = (id) => {
