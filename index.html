@@ -613,6 +613,8 @@ const PROJECTS = [
 // ---- Default preferences (generic — populated after company identification) ---
 const DEFAULT_PREFS = {
   orgName: '',
+  primaryGoal: null,         // 'net-zero' | 'regulatory' | 'supply-lock' | 'other'
+  buyerPreferences: [],      // array of preference IDs from StepPreferences
   annualEmissions: 100_000,
   baselineEmissions: null,   // SBTi baseline year inventory — used for residual calc
   baselineYear: 2019,        // year the baseline was set
@@ -3971,8 +3973,11 @@ window.CUR8_DATA = { METHODS, CATEGORIES, REGIONS, PROJECTS, REAL_PROJECTS, SP_P
 
 function Onboarding({ prefs, setPrefs, onDone }) {
   const [step, setStep] = React.useState(0);
-  const steps = ['Account', 'Goals', 'Budget', 'Portfolio', 'Review'];
-  const canContinue = step !== 0 || (prefs.orgName || '').trim().length > 0;
+  const steps = ['Account', 'Goal', 'Preferences', 'Budget', 'Review'];
+  const canContinue =
+    (step === 0 && (prefs.orgName || '').trim().length > 0) ||
+    (step === 1 && !!prefs.primaryGoal) ||
+    (step >= 2);
 
   return (
     <div style={{minHeight: '100vh', background: 'var(--color-air)', display:'flex', flexDirection:'column'}}>
@@ -4011,9 +4016,9 @@ function Onboarding({ prefs, setPrefs, onDone }) {
       {/* step content */}
       <div style={{flex:1, padding: '0 48px 48px', maxWidth: 1100, width:'100%', margin:'0 auto'}}>
         {step === 0 && <StepAccount prefs={prefs} setPrefs={setPrefs}/>}
-        {step === 1 && <StepGoals prefs={prefs} setPrefs={setPrefs}/>}
-        {step === 2 && <StepBudget prefs={prefs} setPrefs={setPrefs}/>}
-        {step === 3 && <StepPortfolio prefs={prefs} setPrefs={setPrefs}/>}
+        {step === 1 && <StepPrimaryGoal prefs={prefs} setPrefs={setPrefs}/>}
+        {step === 2 && <StepPreferences prefs={prefs} setPrefs={setPrefs}/>}
+        {step === 3 && <StepBudget prefs={prefs} setPrefs={setPrefs}/>}
         {step === 4 && <StepReview prefs={prefs}/>}
       </div>
 
@@ -4039,7 +4044,7 @@ function Onboarding({ prefs, setPrefs, onDone }) {
                   <div style={{position:'absolute', bottom:'calc(100% + 8px)', right:0, background:'var(--color-dark-carbon)', color:'#fff',
                     fontSize:11, padding:'6px 10px', borderRadius:4, whiteSpace:'nowrap', pointerEvents:'none',
                     fontFamily:'var(--font-mono)', letterSpacing:'.04em'}}>
-                    Enter your organisation name to continue
+                    {step === 0 ? 'Enter your organisation name to continue' : 'Select a primary goal to continue'}
                   </div>
                 )}
               </div>
@@ -4296,49 +4301,12 @@ function StepAccount({ prefs, setPrefs }) {
           <Field label="Work email">
             <Input defaultValue={matched ? (matched.team?.[1]?.email || 'sustainability@' + prefs.orgName.split(' ')[0].toLowerCase() + '.com') : 'you@company.com'}/>
           </Field>
-          <Field label="Current annual GHG emissions — scope 1, 2 & 3 (tCO₂e/yr)">
-            <Input
-              value={prefs.annualEmissions.toLocaleString('en-GB')}
-              onChange={v => {
-                const n = parseInt(v.replace(/[^0-9]/g,''), 10) || 0;
-                setPrefs({...prefs, annualEmissions: n});
-              }}
-            />
-            <div style={{fontSize: 12, color: 'var(--color-umber)', marginTop: 6, fontFamily:'var(--font-mono)', letterSpacing:'.04em'}}>
-              {matched
-                ? `Pre-filled from ${matched.orgName} public disclosures. Edit to override.`
-                : prefs._emissionsYear
-                  ? `${prefs._emissionsYear} public disclosure (${prefs._emissionsSource}). Edit to override.`
-                  : 'Network-wide inventory. Used to size the portfolio; editable anytime.'}
-            </div>
-          </Field>
-          <div>
-            <label style={{display:'block', fontFamily:'var(--font-mono)', fontSize:10, letterSpacing:'.12em', textTransform:'uppercase', color:'var(--color-umber)', marginBottom:8}}>
-              Baseline year emissions (tCO₂e)
-            </label>
-            <div style={{display:'flex', gap:8, alignItems:'stretch'}}>
-              <Input
-                value={prefs.baselineEmissions != null ? prefs.baselineEmissions.toLocaleString('en-GB') : ''}
-                placeholder={`e.g. ${prefs.annualEmissions.toLocaleString('en-GB')} — enter your baseline year inventory`}
-                onChange={v => {
-                  const raw = v.replace(/[^0-9]/g,'');
-                  setPrefs({...prefs, baselineEmissions: raw === '' ? null : (parseInt(raw, 10) || null)});
-                }}
-              />
-              <select
-                value={prefs.baselineYear || 2019}
-                onChange={e => setPrefs({...prefs, baselineYear: +e.target.value})}
-                style={{fontFamily:'var(--font-mono)', fontSize:13, padding:'9px 12px', border:'1px solid var(--color-border)', borderRadius:6, background:'#fff', color:'var(--color-dark-carbon)', cursor:'pointer', flexShrink:0}}
-              >
-                {[2015,2016,2017,2018,2019,2020,2021,2022,2023,2024].map(y =>
-                  <option key={y} value={y}>{y}</option>
-                )}
-              </select>
-            </div>
-            <div style={{fontSize: 12, color: prefs.baselineEmissions ? 'var(--color-umber)' : 'var(--color-air-tint)', marginTop: 6, fontFamily:'var(--font-mono)', letterSpacing:'.04em'}}>
-              {prefs.baselineEmissions
-                ? `Residual = ${fmt.k(Math.round(prefs.baselineEmissions * (prefs.sbtiAligned ? 0.10 : 0.20)))} tCO₂e/yr (${prefs.sbtiAligned ? '10' : '20'}% of ${prefs.baselineYear || 2019} baseline)`
-                : `Not set — residual will use current annual emissions as a proxy. Enter your ${prefs.baselineYear || 2019} GHG inventory for an accurate calculation.`}
+          <div style={{padding:'12px 16px', background:'var(--color-air)', borderRadius:6, border:'1px solid var(--color-border)'}}>
+            <div style={{fontSize:12, color:'var(--color-earth)', lineHeight:1.5}}>
+              📊 Emissions data and net-zero targets will be confirmed in the next step.
+              {(matched || prefs._reportParsed) && (
+                <span style={{color:'var(--color-umber)'}}> We've pre-filled what we found — you can review and adjust.</span>
+              )}
             </div>
           </div>
         </div>
@@ -4516,150 +4484,210 @@ function Stat({ n, l }) {
   );
 }
 
-// -------------- STEP 1: GOALS -------------------------------
-function StepGoals({ prefs, setPrefs }) {
+// -------------- STEP 1: PRIMARY GOAL ------------------------
+function StepPrimaryGoal({ prefs, setPrefs }) {
   const TARGET_YEARS = [2030, 2035, 2040, 2045, 2050];
-  const SUGGESTED_GOALS = [
-    'Biodiversity co-benefits',
-    'Geographic diversity',
-    'Support novel CDR methods',
-  ];
-  // SBTi pathway options — shown as exclusive goals when SBTi-aligned
-  const PATHWAY_GOALS = [
-    { label: 'SBTi Recognition pathway', pathway: 'recognition', desc: 'Retire 1% of ongoing emissions to 2035, ramp to full residual at net-zero year.' },
-    { label: 'SBTi Leadership pathway',  pathway: 'leadership',  desc: 'Retire 40% of ongoing emissions to 2035. Maximum ambition — higher near-term cost.' },
-  ];
-  const PATHWAY_LABELS = PATHWAY_GOALS.map(p => p.label);
 
-  const toggleGoal = (g) => {
-    const pathway = PATHWAY_GOALS.find(p => p.label === g);
-    if (pathway) {
-      // Mutually exclusive: clicking the active one clears it, otherwise switch
-      const isOn = prefs.sbtiPathway === pathway.pathway;
-      setPrefs({
-        ...prefs,
-        sbtiPathway: isOn ? null : pathway.pathway,
-        goals: isOn
-          ? prefs.goals.filter(x => x !== g)
-          : [...prefs.goals.filter(x => !PATHWAY_LABELS.includes(x)), g],
-      });
-      return;
-    }
-    const on = prefs.goals.includes(g);
-    setPrefs({...prefs, goals: on ? prefs.goals.filter(x=>x!==g) : [...prefs.goals, g]});
-  };
+  const PRIMARY_GOALS = [
+    { id: 'net-zero',    label: 'Net zero residual emissions',    desc: "Neutralise the tonnes you can't abate. Build a removal portfolio aligned to your net-zero pathway.", icon: '🌍' },
+    { id: 'regulatory', label: 'Regulatory / mandatory reporting', desc: 'Meet compliance obligations — ETS, GX-ETS, CSRD, or national carbon markets. Credits as a compliance instrument.', icon: '📋' },
+    { id: 'supply-lock', label: 'Lock in supply',                  desc: "Secure long-term CDR offtake at today's prices before the market tightens. Strategic position-building.", icon: '🔒' },
+    { id: 'other',       label: 'Other / specify volume',          desc: 'Define a credit volume or budget without a specific removal obligation — exploratory or project-specific.', icon: '⚙️' },
+  ];
+
+  const selected = prefs.primaryGoal;
+  const showNetZeroFields = selected === 'net-zero' || selected === 'regulatory';
+
+  const Checkbox = ({ checked }) => (
+    <div style={{ width:18, height:18, borderRadius:4, flexShrink:0, border: checked ? 'none' : '1.5px solid var(--color-border)', background: checked ? 'var(--color-dark-carbon)' : 'transparent', display:'flex', alignItems:'center', justifyContent:'center' }}>
+      {checked && <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 5L4 7L8 3" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+    </div>
+  );
+
   return (
     <div>
-      <Eyebrow style={{marginBottom: 14}}>Your climate commitments</Eyebrow>
+      <Eyebrow style={{marginBottom: 14}}>Primary goal</Eyebrow>
       <h1 style={{fontSize: 36, fontWeight: 500, letterSpacing:'-0.015em', marginBottom: 12}}>
         What are you trying to achieve?
       </h1>
       <p style={{fontSize: 15, color:'var(--color-earth)', marginBottom: 32, maxWidth: 600}}>
-        Select your target year and the goals your portfolio should serve. These shape the phase weighting of your strategy.
+        Choose the primary reason for building a carbon credit strategy. This shapes the entire portfolio design.
       </p>
 
-      <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap: 24}}>
-        <Card padding={28}>
-          <Eyebrow color="var(--color-umber)" style={{marginBottom: 14}}>Net-zero target year</Eyebrow>
-          <div style={{display:'flex', gap: 8, flexWrap:'wrap'}}>
-            {TARGET_YEARS.map(y => (
-              <button key={y} onClick={()=>setPrefs({...prefs, targetYear: y})}
-                style={{
-                  padding: '14px 20px', borderRadius: 6,
-                  border: prefs.targetYear === y ? '1.5px solid var(--color-dark-carbon)' : '1px solid var(--color-border)',
-                  background: prefs.targetYear === y ? 'var(--color-dark-carbon)' : '#fff',
-                  color: prefs.targetYear === y ? '#fff' : 'var(--color-dark-carbon)',
-                  fontFamily:'var(--font-mono)', fontSize: 13, cursor:'pointer', letterSpacing:'.02em',
-                  flex: '1 1 auto', minWidth: 80, transition:'all .15s'
-                }}>
-                {y}
+      <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap: 12, marginBottom: 32}}>
+        {PRIMARY_GOALS.map(g => {
+          const on = selected === g.id;
+          return (
+            <div key={g.id} onClick={() => setPrefs({...prefs, primaryGoal: g.id})}
+              style={{ padding:'20px 22px', borderRadius:8, cursor:'pointer', transition:'all .15s', border: on ? '1.5px solid var(--color-dark-carbon)' : '1px solid var(--color-border)', background: on ? 'var(--color-dark-carbon)' : '#fff', color: on ? '#fff' : 'var(--color-dark-carbon)' }}>
+              <div style={{display:'flex', alignItems:'flex-start', gap:14}}>
+                <div style={{fontSize:22, lineHeight:1, marginTop:2}}>{g.icon}</div>
+                <div style={{flex:1}}>
+                  <div style={{fontSize:15, fontWeight:500, marginBottom:6}}>{g.label}</div>
+                  <div style={{fontSize:12, lineHeight:1.55, opacity: on ? 0.7 : 0.6}}>{g.desc}</div>
+                </div>
+                <Checkbox checked={on}/>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {showNetZeroFields && (
+        <Card padding={28} style={{marginBottom:16}}>
+          <Eyebrow color="var(--color-umber)" style={{marginBottom:18}}>Emissions & target</Eyebrow>
+          <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:24}}>
+            <div>
+              <Field label="Net-zero target year">
+                <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
+                  {TARGET_YEARS.map(y => (
+                    <button key={y} onClick={() => setPrefs({...prefs, targetYear: y})}
+                      style={{ padding:'10px 16px', borderRadius:6, cursor:'pointer', transition:'all .15s', border: prefs.targetYear === y ? '1.5px solid var(--color-dark-carbon)' : '1px solid var(--color-border)', background: prefs.targetYear === y ? 'var(--color-dark-carbon)' : '#fff', color: prefs.targetYear === y ? '#fff' : 'var(--color-dark-carbon)', fontFamily:'var(--font-mono)', fontSize:12, flex:'1 1 auto' }}>
+                      {y}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+              <div style={{marginTop:20}}>
+                <Field label="Annual GHG emissions (tCO₂e/yr — Scope 1, 2 & 3)">
+                  <Input
+                    value={prefs.annualEmissions.toLocaleString('en-GB')}
+                    onChange={v => { const n = parseInt(v.replace(/[^0-9]/g,''), 10) || 0; setPrefs({...prefs, annualEmissions: n}); }}
+                  />
+                  <div style={{fontSize:11, color:'var(--color-umber)', marginTop:5, fontFamily:'var(--font-mono)', letterSpacing:'.04em'}}>
+                    {prefs._emissionsYear ? `Pre-filled from ${prefs._emissionsYear} public disclosure — edit to override.` : 'Used to size your removal portfolio.'}
+                  </div>
+                </Field>
+              </div>
+            </div>
+            <div>
+              <label style={{display:'block', fontFamily:'var(--font-mono)', fontSize:10, letterSpacing:'.12em', textTransform:'uppercase', color:'var(--color-umber)', marginBottom:8}}>
+                Baseline year emissions (tCO₂e)
+              </label>
+              <div style={{display:'flex', gap:8, alignItems:'stretch', marginBottom:6}}>
+                <Input
+                  value={prefs.baselineEmissions != null ? prefs.baselineEmissions.toLocaleString('en-GB') : ''}
+                  placeholder="e.g. 500,000"
+                  onChange={v => { const raw = v.replace(/[^0-9]/g,''); setPrefs({...prefs, baselineEmissions: raw === '' ? null : (parseInt(raw,10) || null)}); }}
+                />
+                <select value={prefs.baselineYear || 2019} onChange={e => setPrefs({...prefs, baselineYear: +e.target.value})}
+                  style={{fontFamily:'var(--font-mono)', fontSize:13, padding:'9px 12px', border:'1px solid var(--color-border)', borderRadius:6, background:'#fff', color:'var(--color-dark-carbon)', cursor:'pointer', flexShrink:0}}>
+                  {[2015,2016,2017,2018,2019,2020,2021,2022,2023,2024].map(y => <option key={y} value={y}>{y}</option>)}
+                </select>
+              </div>
+              <div style={{fontSize:11, color: prefs.baselineEmissions ? 'var(--color-umber)' : 'var(--color-air-tint)', fontFamily:'var(--font-mono)', letterSpacing:'.04em', lineHeight:1.5}}>
+                {prefs.baselineEmissions
+                  ? `Residual = ${fmt.k(Math.round(prefs.baselineEmissions * 0.10))} tCO₂e/yr at net-zero year`
+                  : `Enter your ${prefs.baselineYear || 2019} GHG inventory — used to calculate residual emissions at net-zero year.`}
+              </div>
+              <div style={{marginTop:20}}>
+                <Toggle on={prefs.sbtiAligned} onChange={v => setPrefs({...prefs, sbtiAligned: v})} label="SBTi Net-Zero Standard 2.0" desc="Aggressive ramp to cover ≥90% of ongoing emissions by target year."/>
+                <div style={{height:10}}/>
+                <Toggle on={prefs.includeSuperpollutants} onChange={v => setPrefs({...prefs, includeSuperpollutants: v})} label="Include superpollutants" desc="Methane, ODS, HFCs — immediate avoided warming. Unlocks Phase 1 credits."/>
+              </div>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {selected === 'supply-lock' && (
+        <Card padding={28} style={{marginBottom:16}}>
+          <Eyebrow color="var(--color-umber)" style={{marginBottom:18}}>Supply parameters</Eyebrow>
+          <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:24}}>
+            <Field label="Target CDR volume (tCO₂e/yr)">
+              <Input value={prefs.annualEmissions.toLocaleString('en-GB')} onChange={v => { const n = parseInt(v.replace(/[^0-9]/g,''), 10) || 0; setPrefs({...prefs, annualEmissions: n}); }} placeholder="e.g. 50,000"/>
+              <div style={{fontSize:11, color:'var(--color-umber)', marginTop:5, fontFamily:'var(--font-mono)', letterSpacing:'.04em'}}>Annual volume to lock in via offtake.</div>
+            </Field>
+            <Field label="Offtake horizon">
+              <div style={{display:'flex', gap:6, flexWrap:'wrap'}}>
+                {TARGET_YEARS.map(y => (
+                  <button key={y} onClick={() => setPrefs({...prefs, targetYear: y})}
+                    style={{ padding:'10px 14px', borderRadius:6, cursor:'pointer', transition:'all .15s', border: prefs.targetYear === y ? '1.5px solid var(--color-dark-carbon)' : '1px solid var(--color-border)', background: prefs.targetYear === y ? 'var(--color-dark-carbon)' : '#fff', color: prefs.targetYear === y ? '#fff' : 'var(--color-dark-carbon)', fontFamily:'var(--font-mono)', fontSize:12, flex:'1 1 auto' }}>
+                    {y}
+                  </button>
+                ))}
+              </div>
+            </Field>
+          </div>
+        </Card>
+      )}
+
+      {selected === 'other' && (
+        <Card padding={28} style={{marginBottom:16}}>
+          <Eyebrow color="var(--color-umber)" style={{marginBottom:18}}>Specify your requirement</Eyebrow>
+          <div style={{display:'flex', gap:8, marginBottom:20}}>
+            {[{key:'price',label:'Annual budget (USD)'},{key:'total',label:'Number of credits (tCO₂e)'}].map(opt => (
+              <button key={opt.key} onClick={() => setPrefs({...prefs, budgetMode: opt.key})}
+                style={{ padding:'10px 20px', borderRadius:6, cursor:'pointer', transition:'all .15s', border: prefs.budgetMode === opt.key ? '1.5px solid var(--color-dark-carbon)' : '1px solid var(--color-border)', background: prefs.budgetMode === opt.key ? 'var(--color-dark-carbon)' : '#fff', color: prefs.budgetMode === opt.key ? '#fff' : 'var(--color-dark-carbon)', fontFamily:'var(--font-mono)', fontSize:12 }}>
+                {opt.label}
               </button>
             ))}
           </div>
-          <div style={{fontSize: 12, color:'var(--color-umber)', marginTop: 14, fontFamily:'var(--font-mono)', letterSpacing:'.04em'}}>
-            Drives the ramp of ongoing emissions coverage.
-          </div>
-
-          <Rule style={{margin:'24px 0'}}/>
-
-          <Eyebrow color="var(--color-umber)" style={{marginBottom: 14}}>Framework alignment</Eyebrow>
-          <Toggle
-            on={prefs.sbtiAligned}
-            onChange={v => setPrefs({...prefs, sbtiAligned: v})}
-            label="SBTi Net-Zero Standard 2.0"
-            desc="Aggressive ramp to cover ≥90% of ongoing emissions by target year."
-          />
-          <div style={{height: 12}}/>
-          <Toggle
-            on={prefs.includeSuperpollutants}
-            onChange={v => setPrefs({...prefs, includeSuperpollutants: v})}
-            label="Include superpollutants"
-            desc="Immediate avoided warming — methane, ODS, HFCs. Unlocks Phase 1 credits."
-          />
-
+          {prefs.budgetMode === 'price'
+            ? <Field label="Annual budget (USD)"><Input value={`$${prefs.totalBudget.toLocaleString('en-GB')}`} onChange={v => { const n = parseInt(v.replace(/[^0-9]/g,''), 10) || 0; setPrefs({...prefs, totalBudget: n}); }}/></Field>
+            : <Field label="Credits to purchase (tCO₂e)"><Input value={prefs.annualEmissions.toLocaleString('en-GB')} onChange={v => { const n = parseInt(v.replace(/[^0-9]/g,''), 10) || 0; setPrefs({...prefs, annualEmissions: n}); }}/></Field>
+          }
         </Card>
+      )}
+    </div>
+  );
+}
 
-        <Card padding={28}>
-          <Eyebrow color="var(--color-umber)" style={{marginBottom: 14}}>Goals you want to pursue</Eyebrow>
-          <div style={{display:'flex', flexDirection:'column', gap: 6}}>
-            {SUGGESTED_GOALS.map(g => {
-              const on = prefs.goals.includes(g);
-              return (
-                <div key={g} onClick={()=>toggleGoal(g)}
-                  style={{
-                    display:'flex', alignItems:'center', gap: 12,
-                    padding: '12px 14px',
-                    border: on ? '1px solid var(--color-dark-carbon)' : '1px solid var(--color-border)',
-                    background: on ? 'var(--color-air)' : '#fff',
-                    borderRadius: 6, cursor:'pointer', transition:'all .15s'
-                  }}>
-                  <div style={{
-                    width: 16, height: 16, borderRadius: 3,
-                    border: on ? 'none' : '1.5px solid var(--color-border)',
-                    background: on ? 'var(--color-dark-carbon)' : 'transparent',
-                    display:'flex', alignItems:'center', justifyContent:'center', flexShrink: 0
-                  }}>
-                    {on && <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 5L4 7L8 3" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+// --- STEP 2: PREFERENCES ---------------------------------
+function StepPreferences({ prefs, setPrefs }) {
+  const PREFERENCES = [
+    { id:'quality',        label:'Defensible quality',           sub:'Anti-greenwashing red line',         desc:'SBTi/standards alignment, no fossil-fuel value chain ties, registry-verifiable, PR-risk scanned. The most universal buyer requirement.', icon:'🛡' },
+    { id:'diversification',label:'Portfolio diversification',     sub:'Managed delivery risk',             desc:'Methods, geographies, vintages and suppliers diversified with a delivery-risk wrapper. Avoid concentration in any single project or developer.', icon:'⚖️' },
+    { id:'dd-outsourced',  label:'Scientific DD done for you',    sub:'No internal science team needed',   desc:"The intermediary's diligence model is itself the product. Buyers without capacity for per-project deep-dives need a trusted expert layer.", icon:'🔬' },
+    { id:'co-benefits',    label:'Co-benefit / mission-fit story',sub:'Internal stakeholder sign-off',     desc:'SDGs, biodiversity, community and farmer impact, alignment to corporate purpose. Needed to win CFO and board approval.', icon:'🌱' },
+    { id:'geo-alignment',  label:'Geographic / value-chain fit',  sub:'Credits near your operations',      desc:'Credits from regions where your business or supply chain operates. Relevant for TNFD, supplier engagement and brand narrative.', icon:'📍' },
+    { id:'offtake',        label:'Long-term offtake structure',    sub:'Pay-on-delivery + protection',      desc:'Multi-year forward contracts with replacement clauses. Not pre-pay, not spot. Price hedge and supply certainty in a tightening market.', icon:'📄' },
+    { id:'price',          label:'Price within a quality bar',     sub:'Best value, not cheapest',          desc:'Almost no buyer leads with price — but it's always a constraint. Defensible quality at the lowest cost that passes the red line.', icon:'💰' },
+    { id:'platform',       label:'Platform & portfolio visibility',sub:'Replace Excel + registry tabs',     desc:'A dashboard showing live portfolio status, credit retirements and reporting-ready data. Increasingly a baseline requirement.', icon:'📊' },
+  ];
+
+  const toggle = (id) => {
+    const on = prefs.buyerPreferences.includes(id);
+    setPrefs({ ...prefs, buyerPreferences: on ? prefs.buyerPreferences.filter(x => x !== id) : [...prefs.buyerPreferences, id] });
+  };
+
+  return (
+    <div>
+      <Eyebrow style={{marginBottom:14}}>Portfolio preferences</Eyebrow>
+      <h1 style={{fontSize:36, fontWeight:500, letterSpacing:'-0.015em', marginBottom:12}}>
+        What matters most to you?
+      </h1>
+      <p style={{fontSize:15, color:'var(--color-earth)', marginBottom:32, maxWidth:600}}>
+        Select all that apply. These shape how CUR8 scores and filters projects for your portfolio.
+      </p>
+      <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10}}>
+        {PREFERENCES.map(p => {
+          const on = prefs.buyerPreferences.includes(p.id);
+          return (
+            <div key={p.id} onClick={() => toggle(p.id)}
+              style={{ padding:'18px 20px', borderRadius:8, cursor:'pointer', transition:'all .15s', border: on ? '1.5px solid var(--color-dark-carbon)' : '1px solid var(--color-border)', background: on ? 'var(--color-air)' : '#fff' }}>
+              <div style={{display:'flex', alignItems:'flex-start', gap:12}}>
+                <div style={{fontSize:20, lineHeight:1, marginTop:1, flexShrink:0}}>{p.icon}</div>
+                <div style={{flex:1}}>
+                  <div style={{display:'flex', alignItems:'center', gap:8, marginBottom:3}}>
+                    <span style={{fontSize:14, fontWeight:500}}>{p.label}</span>
+                    <span style={{fontFamily:'var(--font-mono)', fontSize:9, letterSpacing:'.08em', textTransform:'uppercase', color:'var(--color-umber)', flexShrink:0}}>{p.sub}</span>
                   </div>
-                  <span style={{fontSize: 14}}>{g}</span>
+                  <div style={{fontSize:12, color:'var(--color-earth)', lineHeight:1.5}}>{p.desc}</div>
                 </div>
-              );
-            })}
-
-            {/* SBTi pathway goals — only when SBTi-aligned */}
-            {prefs.sbtiAligned && (
-              <>
-                <Rule style={{margin:'10px 0 6px'}}/>
-                <div style={{fontFamily:'var(--font-mono)', fontSize: 10, letterSpacing:'.1em', textTransform:'uppercase', color:'var(--color-umber)', marginBottom: 2, paddingLeft: 2}}>SBTi retirement ambition</div>
-                {PATHWAY_GOALS.map(({ label, pathway, desc }) => {
-                  const on = prefs.sbtiPathway === pathway;
-                  return (
-                    <div key={label} onClick={() => toggleGoal(label)}
-                      style={{
-                        display:'flex', alignItems:'flex-start', gap: 12,
-                        padding: '12px 14px',
-                        border: on ? '1px solid var(--color-dark-carbon)' : '1px solid var(--color-border)',
-                        background: on ? 'var(--color-air)' : '#fff',
-                        borderRadius: 6, cursor:'pointer', transition:'all .15s'
-                      }}>
-                      <div style={{
-                        width: 16, height: 16, borderRadius: '50%', marginTop: 1,
-                        border: on ? 'none' : '1.5px solid var(--color-border)',
-                        background: on ? 'var(--color-dark-carbon)' : 'transparent',
-                        flexShrink: 0
-                      }}/>
-                      <div>
-                        <div style={{fontSize: 14, fontWeight: on ? 500 : 400}}>{label}</div>
-                        <div style={{fontSize: 12, color: 'var(--color-earth)', marginTop: 2, lineHeight: 1.5}}>{desc}</div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </>
-            )}
-          </div>
-        </Card>
+                <div style={{ width:16, height:16, borderRadius:3, flexShrink:0, marginTop:2, border: on ? 'none' : '1.5px solid var(--color-border)', background: on ? 'var(--color-dark-carbon)' : 'transparent', display:'flex', alignItems:'center', justifyContent:'center' }}>
+                  {on && <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M2 5L4 7L8 3" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
+      {prefs.buyerPreferences.length === 0 && (
+        <div style={{marginTop:16, fontSize:13, color:'var(--color-umber)', fontFamily:'var(--font-mono)', letterSpacing:'.04em'}}>
+          No preferences selected — you can skip this step and configure later.
+        </div>
+      )}
     </div>
   );
 }
